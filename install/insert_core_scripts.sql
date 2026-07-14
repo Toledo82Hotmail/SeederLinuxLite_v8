@@ -158,7 +158,7 @@ OM_ACRONYM="{{OM_ACRONYM}}"
 
 echo ">>> Dominio: $DOMINIO"
 echo ">>> DNS primario: $DNS_PRIMARIO"
-echo ">>> DNS secundario: $DNS_SECUNDARIO}"
+echo ">>> DNS secundario: ${DNS_SECUNDARIO}"
 echo ">>> NTP: $NTP_SERVER"
 
 # ============================================================
@@ -481,10 +481,20 @@ GRUPO_DASTI="{{GRUPO_DASTI}}"
 OFFLINE_AUTH_ENABLED="{{OFFLINE_AUTH_ENABLED}}"
 OFFLINE_AUTH_DAYS="{{OFFLINE_AUTH_DAYS}}"
 ADMIN_USERNAME="{{ADMIN_USERNAME}}"
+AUTH_METHOD="{{AUTH_METHOD}}"
 
 echo ">>> Dominio: $DOMINIO"
 echo ">>> NetBIOS: $DOMINIO_NETBIOS"
 echo ">>> DC principal: $DC_IP"
+
+# ============================================================
+# Definir modo winbind offline logon conforme AUTH_METHOD e OFFLINE_AUTH_ENABLED
+# ============================================================
+if [ "$AUTH_METHOD" = "winbind" ] && [ "$OFFLINE_AUTH_ENABLED" = "true" ]; then
+    WINBIND_OFFLINE="yes"
+else
+    WINBIND_OFFLINE="false"
+fi
 
 # ============================================================
 # Configurar Kerberos
@@ -530,7 +540,7 @@ cat > /etc/samba/smb.conf <<EOF
     template shell = /bin/bash
     template homedir = /home/%D/%U
     winbind use default domain = true
-    winbind offline logon = false
+    winbind offline logon = ${WINBIND_OFFLINE}
     winbind nss info = rfc2307
     winbind enum users = no
     winbind enum groups = no
