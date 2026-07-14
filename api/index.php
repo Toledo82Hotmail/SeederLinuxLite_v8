@@ -1108,8 +1108,13 @@ function handleUploadWallpaper() {
     $file = $_FILES['wallpaper'];
     $allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
 
-    if (!in_array($file['type'], $allowedTypes)) {
-        jsonError('Tipo de arquivo invalido. Use JPG, PNG, GIF ou WebP', 400);
+    // Valida MIME real (nao confia em $file['type'] fornecido pelo cliente)
+    $finfo = finfo_open(FILEINFO_MIME_TYPE);
+    $realMime = $finfo ? finfo_file($finfo, $file['tmp_name']) : $file['type'];
+    if ($finfo) finfo_close($finfo);
+
+    if (!in_array($realMime, $allowedTypes, true)) {
+        jsonError('Tipo de arquivo invalido. Use JPG, PNG, GIF ou WebP (MIME real: ' . $realMime . ')', 415);
     }
 
     if ($file['size'] > 10 * 1024 * 1024) {
@@ -1159,8 +1164,18 @@ function handleUploadLogo() {
     $file = $_FILES['logo'];
     $allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
 
-    if (!in_array($file['type'], $allowedTypes)) {
-        jsonError('Tipo de arquivo invalido', 400);
+    // Valida MIME real (nao confia em $file['type'] fornecido pelo cliente)
+    $finfo = finfo_open(FILEINFO_MIME_TYPE);
+    $realMime = $finfo ? finfo_file($finfo, $file['tmp_name']) : $file['type'];
+    if ($finfo) finfo_close($finfo);
+
+    // finfo detecta SVG como "image/svg" ou "text/xml" - normaliza
+    if (in_array($realMime, ['image/svg', 'text/xml', 'application/xml'], true)) {
+        $realMime = 'image/svg+xml';
+    }
+
+    if (!in_array($realMime, $allowedTypes, true)) {
+        jsonError('Tipo de arquivo invalido (MIME real: ' . $realMime . ')', 415);
     }
 
     if ($file['size'] > 10 * 1024 * 1024) {
@@ -1271,8 +1286,18 @@ function handleUploadAsset() {
     $allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
     if ($cfg['svg']) $allowedTypes[] = 'image/svg+xml';
 
-    if (!in_array($file['type'], $allowedTypes)) {
-        jsonError('Tipo de arquivo invalido. Use ' . implode(', ', $allowedTypes), 400);
+    // Valida MIME real via fileinfo (nao confia em $file['type'] fornecido pelo cliente)
+    $finfo = finfo_open(FILEINFO_MIME_TYPE);
+    $realMime = $finfo ? finfo_file($finfo, $file['tmp_name']) : $file['type'];
+    if ($finfo) finfo_close($finfo);
+
+    // finfo pode detectar SVG como "image/svg", "text/xml" ou "application/xml"
+    if ($cfg['svg'] && in_array($realMime, ['image/svg', 'text/xml', 'application/xml'], true)) {
+        $realMime = 'image/svg+xml';
+    }
+
+    if (!in_array($realMime, $allowedTypes, true)) {
+        jsonError('Tipo de arquivo invalido (MIME real: ' . $realMime . '). Aceitos: ' . implode(', ', $allowedTypes), 415);
     }
     if ($file['size'] > 10 * 1024 * 1024) {
         jsonError('Arquivo muito grande (max 10MB)', 400);

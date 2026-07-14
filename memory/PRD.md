@@ -53,6 +53,23 @@ Ferramenta web (PHP + PostgreSQL) que gera bundles bash de provisionamento para 
 - api/index.php (upload-asset endpoint unificado)
 - 9 scripts em scripts/core/ (sessao anterior)
 
+## Sessao 4 (Jan 2026): Auditoria Seguranca (Opcao A)
+- **api/index.php**: 3 handlers de upload agora validam MIME real via `finfo_file()` ao inves de confiar em `$_FILES[...]['type']` (forjavel pelo cliente):
+  - `handleUploadWallpaper`: aceita JPG/PNG/GIF/WebP
+  - `handleUploadLogo`: aceita JPG/PNG/GIF/WebP/SVG (com normalizacao `image/svg`|`text/xml`|`application/xml` -> `image/svg+xml`)
+  - `handleUploadAsset` (endpoint unificado): mesma validacao + normalizacao SVG condicional
+  - Erros passam a retornar HTTP 415 com o MIME real detectado para diagnostico
+- **tests/test_upload_mime.php**: 3 assertions cobrindo (a) `.txt` renomeado para `.png` -> rejeitado; (b) PNG real -> aceito; (c) SVG normalizado -> aceito
+- **Auditoria de setup_user.sql**: encontradas credenciais default fracas `admin`/`admin123` — documentadas em `memory/test_credentials.md` mas NAO alteradas (fora do escopo da Opcao A). Recomendacao registrada para Opcao B/C: gerar senha aleatoria no install.sh ou forcar troca no primeiro login.
+
+## Auditoria (falso positivos confirmados via inspecao)
+- SQL injection: NAO existe. `lib/db.php` usa PDO prepared statements em 100% das queries.
+- XSS via PHP: NAO existe. PHP e API JSON-only; render e no JS via `Utils.escapeHtml()`.
+- schema.sql com senha DB hardcoded: NAO existe.
+- `NO_PROXY` como tags quebra core_proxy.sh: NAO — `tags-hidden.value = items.join(',')` produz CSV compativel.
+- schema_update_v5 so INSERT: NAO — arquivo tem 6 UPDATEs explicitos de `variable_definitions`.
+- Conky recria HTML a cada toggle: NAO — `updateConkyField` so atualiza hidden input JSON.
+
 ## Sessao 3 (Jan 2026): Aba Assets - Card Layout Unificado
 - **api/index.php**: novo endpoint `POST /api/?action=upload-asset` unificado que aceita `organization_id`, `var_name` e `asset[]`. Whitelist de vars (`WALLPAPER_URL`, `WALLPAPER_LOGIN_URL`, `LOGO_URL`, `GREETER_URL`). Aceita SVG apenas para logo. Atualiza a variavel diretamente + bumpOrgSerial + audit.
 - **assets/js/admin.js**:
