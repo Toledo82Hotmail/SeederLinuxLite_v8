@@ -502,30 +502,12 @@ function renderVarsWithGroups(vars) {
 }
 
 function renderVarRow(v) {
-    const input = renderTypedInput(v);
-    const isImg = v.name === 'WALLPAPER_URL' || v.name === 'LOGO_URL';
-    const type = v.name === 'WALLPAPER_URL' ? 'wallpaper' : 'logo';
-
-    let gallery = '';
-    if (isImg) {
-        const imgs = uploadedImages[type + 's'] || [];
-        gallery = `
-            <div class="mt-2">
-                <label class="inline-flex items-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-lg text-sm cursor-pointer hover:bg-blue-700">
-                    <input type="file" class="hidden" accept="image/jpeg,image/png,image/gif,image/webp" onchange="handleImageUpload('${type}', ${v.id}, this)">
-                    Upload
-                </label>
-            </div>
-            <div class="image-gallery mt-2" id="${type}-gallery">
-                ${imgs.length ? imgs.map(i => `
-                    <div class="gallery-thumb ${i.url === (v.current_value || '') ? 'selected' : ''}"
-                         onclick="selectGalleryImage('${Utils.escapeHtml(i.url)}', ${v.id}, this)">
-                        <img src="${i.thumbnail || i.url}" alt="${i.filename}">
-                    </div>
-                `).join('') : '<span class="text-slate-500 text-xs">Nenhuma imagem</span>'}
-            </div>`;
+    // Category "assets" tem layout de card dedicado (com preview + upload + remover)
+    if ((v.category || '') === 'assets' || v.type === 'image') {
+        return renderAssetCard(v);
     }
 
+    const input = renderTypedInput(v);
     return `
         <div class="var-row">
             <label class="block text-sm font-medium text-slate-300 mb-1">
@@ -533,9 +515,115 @@ function renderVarRow(v) {
             </label>
             ${input}
             ${v.description ? `<p class="text-slate-500 text-xs mt-1">${Utils.escapeHtml(v.description)}</p>` : ''}
-            ${gallery}
         </div>`;
 }
+
+// Rótulos amigaveis para os assets
+const assetLabels = {
+    'LOGO_URL': { title: 'Logo da OM', hint: 'Ícone/marca exibido no login e menus' },
+    'WALLPAPER_URL': { title: 'Wallpaper (Desktop)', hint: 'Papel de parede da área de trabalho' },
+    'WALLPAPER_LOGIN_URL': { title: 'Wallpaper (Login)', hint: 'Papel de parede da tela de login (greeter)' },
+    'GREETER_URL': { title: 'Greeter (Boas-vindas)', hint: 'Tela de boas-vindas customizada' }
+};
+
+function renderAssetCard(v) {
+    const val = v.current_value || '';
+    const meta = assetLabels[v.name] || { title: v.name, hint: v.description || '' };
+    const preview = val
+        ? `<img src="${Utils.escapeHtml(val)}" class="asset-card-preview" alt="Preview" onerror="this.classList.add('asset-card-preview-broken')">`
+        : `<div class="asset-card-preview-empty">Nenhuma imagem definida</div>`;
+    const acceptTypes = v.name === 'LOGO_URL'
+        ? 'image/jpeg,image/png,image/gif,image/webp,image/svg+xml'
+        : 'image/jpeg,image/png,image/gif,image/webp';
+
+    return `
+        <div class="asset-card" data-var-name="${Utils.escapeHtml(v.name)}">
+            <div class="asset-card-header">
+                <div>
+                    <div class="asset-card-title">${Utils.escapeHtml(meta.title)}</div>
+                    <div class="asset-card-hint">${Utils.escapeHtml(meta.hint)}</div>
+                </div>
+                <span class="asset-card-varname">${Utils.escapeHtml(v.name)}</span>
+            </div>
+            <div class="asset-card-preview-wrap" id="asset-preview-${v.id}">
+                ${preview}
+            </div>
+            <input type="url" data-var-id="${v.id}" value="${Utils.escapeHtml(val)}" class="var-input asset-card-url" placeholder="URL da imagem (ou faça upload)" oninput="updateAssetCardPreview(${v.id}, this.value)">
+            <div class="asset-card-actions">
+                <label class="asset-btn asset-btn-primary">
+                    <input type="file" class="hidden" accept="${acceptTypes}" onchange="uploadAsset('${Utils.escapeHtml(v.name)}', ${v.id}, this)">
+                    <i class="fas fa-upload"></i> Selecionar arquivo
+                </label>
+                <button type="button" class="asset-btn asset-btn-secondary" onclick="clearAsset(${v.id})" ${val ? '' : 'disabled'}>
+                    <i class="fas fa-trash"></i> Remover
+                </button>
+            </div>
+        </div>`;
+}
+
+// Preview live enquanto o usuario digita/cola a URL
+function updateAssetCardPreview(varId, url) {
+    const wrap = document.getElementById(`asset-preview-${varId}`);
+    if (!wrap) return;
+    const trimmed = (url || '').trim();
+    if (trimmed) {
+        wrap.innerHTML = `<img src="${Utils.escapeHtml(trimmed)}" class="asset-card-preview" alt="Preview" onerror="this.classList.add('asset-card-preview-broken')">`;
+    } else {
+        wrap.innerHTML = `<div class="asset-card-preview-empty">Nenhuma imagem definida</div>`;
+    }
+    // Ativa/desativa botao Remover
+    const card = wrap.closest('.asset-card');
+    if (card) {
+        const removeBtn = card.querySelector('.asset-btn-secondary');
+        if (removeBtn) removeBtn.disabled = !trimmed;
+    }
+}
+window.updateAssetCardPreview = updateAssetCardPreview;
+
+// Limpar URL (sem apagar o arquivo do servidor)
+function clearAsset(varId) {
+    const urlInput = document.querySelector(`input[data-var-id="${varId}"].asset-card-url`);
+    if (!urlInput) return;
+    urlInput.value = '';
+    updateAssetCardPreview(varId, '');
+    Toast.info && Toast.info('URL removida. Clique em Salvar para persistir.');
+}
+window.clearAsset = clearAsset;
+
+// Upload via endpoint unificado /api/?action=upload-asset
+async function uploadAsset(varName, varId, inputEl) {
+    if (!inputEl.files || !inputEl.files[0]) return;
+    if (!currentOrgId) { Toast.error('Selecione uma OM antes'); return; }
+    const file = inputEl.files[0];
+
+    const fd = new FormData();
+    fd.append('organization_id', currentOrgId);
+    fd.append('var_name', varName);
+    fd.append('asset', file);
+
+    try {
+        const res = await fetch('/api/?action=upload-asset', { method: 'POST', body: fd, credentials: 'include' });
+        const data = await res.json();
+        if (!data.success) {
+            Toast.error(data.error || 'Falha no upload');
+            return;
+        }
+        const url = data.data.url;
+        // Atualiza o input e a preview
+        const urlInput = document.querySelector(`input[data-var-id="${varId}"].asset-card-url`);
+        if (urlInput) urlInput.value = url;
+        updateAssetCardPreview(varId, url);
+        // Atualiza allVariables in-memory
+        const v = allVariables.find(x => String(x.id) === String(varId));
+        if (v) v.current_value = url;
+        Toast.success('Imagem enviada e salva com sucesso');
+    } catch (e) {
+        Toast.error('Erro de rede no upload');
+    } finally {
+        inputEl.value = '';
+    }
+}
+window.uploadAsset = uploadAsset;
 
 function renderTypedInput(v) {
     const val = v.current_value || '';
@@ -569,7 +657,9 @@ function renderTypedInput(v) {
                 <input type="hidden" data-var-id="${varId}" data-type="tags-hidden" value="${Utils.escapeHtml(items.join(','))}">
             </div>`;
     }
-    if (v.type === 'image' || v.name.endsWith('_URL') && ['WALLPAPER_URL','WALLPAPER_LOGIN_URL','LOGO_URL','GREETER_URL'].includes(v.name)) {
+    if (v.type === 'image' || (v.name.endsWith('_URL') && ['WALLPAPER_URL','WALLPAPER_LOGIN_URL','LOGO_URL','GREETER_URL'].includes(v.name))) {
+        // Vars de imagem sao renderizadas via renderAssetCard (card completo).
+        // Este fallback so e usado se alguem chamar renderTypedInput diretamente (ex: em modais).
         const preview = val
             ? `<img src="${Utils.escapeHtml(val)}" class="asset-preview" onerror="this.style.display='none'" alt="Preview">`
             : `<div class="asset-preview-empty">Sem imagem</div>`;

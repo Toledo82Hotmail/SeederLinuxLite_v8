@@ -50,8 +50,26 @@ Ferramenta web (PHP + PostgreSQL) que gera bundles bash de provisionamento para 
 - assets/js/admin.js
 - assets/css/style.css
 - scripts/core/core_conky.sh
-- api/index.php (sessao anterior)
+- api/index.php (upload-asset endpoint unificado)
 - 9 scripts em scripts/core/ (sessao anterior)
+
+## Sessao 3 (Jan 2026): Aba Assets - Card Layout Unificado
+- **api/index.php**: novo endpoint `POST /api/?action=upload-asset` unificado que aceita `organization_id`, `var_name` e `asset[]`. Whitelist de vars (`WALLPAPER_URL`, `WALLPAPER_LOGIN_URL`, `LOGO_URL`, `GREETER_URL`). Aceita SVG apenas para logo. Atualiza a variavel diretamente + bumpOrgSerial + audit.
+- **assets/js/admin.js**:
+  - `renderVarRow` roteia `category=assets` OU `type=image` para `renderAssetCard` (nao usa mais galeria antiga)
+  - Nova constante `assetLabels` com titulo + hint amigaveis
+  - `renderAssetCard` gera card com: header (titulo/hint/var name em pill mono), preview `<img>` com aspect 16:9 e checkerboard de transparencia, input URL editavel, botao "Selecionar arquivo" (upload real) + botao "Remover" (limpa URL, desabilita se vazio)
+  - `updateAssetCardPreview` atualiza preview e habilita/desabilita botao Remover on-the-fly
+  - `clearAsset` limpa a URL localmente (persistira ao clicar Salvar)
+  - `uploadAsset` faz `fetch` FormData para o endpoint unificado, atualiza input+preview+allVariables in-memory sem reload
+- **assets/css/style.css**: estilos `.asset-card`, `.asset-card-header`, `.asset-card-title`, `.asset-card-hint`, `.asset-card-varname` (pill), `.asset-card-preview-wrap` (com checkerboard para mostrar transparencia), `.asset-btn-primary`/`.asset-btn-secondary` (com estado disabled).
+
+**Problemas resolvidos:**
+- `WALLPAPER_URL` aparecendo 3× -> agora 1 card unico
+- `GREETER_URL` sem botao upload -> agora tem botao "Selecionar arquivo"
+- Layout confuso com secoes soltas -> cards padronizados em grid
+- Ausencia de "Remover" -> botao dedicado com estado disabled
+- Falta de preview em tempo real -> `oninput` atualiza a thumb
 
 ## Testing
 - `bash -n` limpo em todos scripts bash

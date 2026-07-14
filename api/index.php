@@ -160,6 +160,11 @@ try {
             requireAuth();
             handleGetLogos($orgId);
             break;
+        case 'upload-asset':
+            requireAuth();
+            if ($method !== 'POST') jsonError('Method not allowed', 405);
+            handleUploadAsset();
+            break;
 
         default:
             jsonError('Endpoint invalido: ' . $action, 404);
@@ -1232,3 +1237,75 @@ function handleGetLogos($orgId) {
     usort($images, fn($a, $b) => $b['timestamp'] - $a['timestamp']);
     jsonSuccess(['images' => $images]);
 }
+
+/**
+ * Upload unificado de qualquer asset (WALLPAPER_URL, WALLPAPER_LOGIN_URL, LOGO_URL, GREETER_URL).
+ * Espera POST multipart: organization_id, var_name, file[asset]
+ */
+function handleUploadAsset() {
+    $orgId = (int)($_POST['organization_id'] ?? 0);
+    $varName = strtoupper(trim($_POST['var_name'] ?? ''));
+
+    if (!$orgId) jsonError('Organization ID required', 400);
+    if (!$varName) jsonError('var_name obrigatorio', 400);
+
+    $allowedVars = [
+        'WALLPAPER_URL' => ['dir' => 'wallpapers', 'prefix' => 'wallpaper', 'thumb' => true,  'svg' => false],
+        'WALLPAPER_LOGIN_URL' => ['dir' => 'wallpapers', 'prefix' => 'wallpaper_login', 'thumb' => true, 'svg' => false],
+        'LOGO_URL' => ['dir' => 'logos', 'prefix' => 'logo', 'thumb' => false, 'svg' => true],
+        'GREETER_URL' => ['dir' => 'wallpapers', 'prefix' => 'greeter', 'thumb' => true, 'svg' => false],
+    ];
+    if (!isset($allowedVars[$varName])) jsonError('var_name nao permitido para upload de asset', 400);
+
+    $userOrgId = getUserOrgId();
+    if ($userOrgId !== null && $userOrgId !== $orgId && !isAdminGap()) {
+        jsonError('Sem permissao', 403);
+    }
+
+    if (!isset($_FILES['asset']) || $_FILES['asset']['error'] !== UPLOAD_ERR_OK) {
+        jsonError('Nenhum arquivo enviado (esperado campo "asset")', 400);
+    }
+
+    $cfg = $allowedVars[$varName];
+    $file = $_FILES['asset'];
+    $allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    if ($cfg['svg']) $allowedTypes[] = 'image/svg+xml';
+
+    if (!in_array($file['type'], $allowedTypes)) {
+        jsonError('Tipo de arquivo invalido. Use ' . implode(', ', $allowedTypes), 400);
+    }
+    if ($file['size'] > 10 * 1024 * 1024) {
+        jsonError('Arquivo muito grande (max 10MB)', 400);
+    }
+
+    $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+    $filename = $cfg['prefix'] . '_org' . $orgId . '_' . time() . '.' . $ext;
+    $uploadDir = __DIR__ . '/../assets/' . $cfg['dir'] . '/';
+    if (!is_dir($uploadDir)) mkdir($uploadDir, 0755, true);
+
+    if (!move_uploaded_file($file['tmp_name'], $uploadDir . $filename)) {
+        jsonError('Erro ao salvar arquivo', 500);
+    }
+
+    $thumbUrl = null;
+    if ($cfg['thumb']) {
+        $thumbDir = $uploadDir . 'thumbs/';
+        if (!is_dir($thumbDir)) mkdir($thumbDir, 0755, true);
+        generateThumbnail($uploadDir . $filename, $thumbDir . $filename, 100, 70);
+        $thumbUrl = '/assets/' . $cfg['dir'] . '/thumbs/' . $filename;
+    }
+
+    $url = '/assets/' . $cfg['dir'] . '/' . $filename;
+
+    Database::execute(
+        "UPDATE organization_variables ov SET value = ?
+         FROM variable_definitions vd
+         WHERE ov.organization_id = ? AND ov.variable_id = vd.id AND vd.name = ?",
+        [$url, $orgId, $varName]
+    );
+    bumpOrgSerial($orgId);
+
+    log_audit('UPLOAD', 'asset', null, ['organization_id' => $orgId, 'var_name' => $varName, 'filename' => $filename]);
+    jsonSuccess(['url' => $url, 'thumbnail' => $thumbUrl, 'filename' => $filename, 'var_name' => $varName], 'Asset enviado');
+}
+
