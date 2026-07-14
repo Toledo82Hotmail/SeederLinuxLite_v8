@@ -29,6 +29,35 @@ THEME="{{THEME}}"
 DESKTOP_ENV="{{DESKTOP_ENV}}"
 DISPLAY_MANAGER="{{DISPLAY_MANAGER}}"
 
+# ============================================================
+# Detectar ambiente grafico se nao definido
+# ============================================================
+if [ -z "$DESKTOP_ENV" ] || [ "$DESKTOP_ENV" = "" ]; then
+    if command -v cinnamon-session &>/dev/null; then DESKTOP_ENV="cinnamon"
+    elif command -v mate-session &>/dev/null; then DESKTOP_ENV="mate"
+    elif command -v gnome-session &>/dev/null; then DESKTOP_ENV="gnome"
+    elif command -v startxfce4 &>/dev/null; then DESKTOP_ENV="xfce"
+    elif command -v startplasma-x11 &>/dev/null; then DESKTOP_ENV="kde"
+    elif command -v startlxde &>/dev/null; then DESKTOP_ENV="lxde"
+    else DESKTOP_ENV="unknown"
+    fi
+fi
+echo ">>> Ambiente detectado: $DESKTOP_ENV"
+
+# ============================================================
+# Detectar display manager se nao definido
+# ============================================================
+if [ -z "$DISPLAY_MANAGER" ] || [ "$DISPLAY_MANAGER" = "" ]; then
+    if systemctl is-active --quiet lightdm 2>/dev/null; then DISPLAY_MANAGER="lightdm"
+    elif systemctl is-active --quiet gdm3 2>/dev/null; then DISPLAY_MANAGER="gdm3"
+    elif systemctl is-active --quiet sddm 2>/dev/null; then DISPLAY_MANAGER="sddm"
+    elif [ -f /etc/X11/default-display-manager ]; then
+        DISPLAY_MANAGER="$(basename "$(cat /etc/X11/default-display-manager)")"
+    else DISPLAY_MANAGER="unknown"
+    fi
+fi
+echo ">>> Display Manager detectado: $DISPLAY_MANAGER"
+
 echo ">>> OM: $OM_ACRONYM - $OM_NAME"
 echo ">>> Ambiente: $DESKTOP_ENV / $DISPLAY_MANAGER"
 echo ">>> Tema: $THEME"

@@ -30,6 +30,21 @@ OM_ACRONYM="{{OM_ACRONYM}}"
 DESKTOP_ENV="{{DESKTOP_ENV}}"
 DEFAULT_PRINTER="{{DEFAULT_PRINTER}}"
 
+# ============================================================
+# Detectar ambiente grafico se nao definido
+# ============================================================
+if [ -z "$DESKTOP_ENV" ] || [ "$DESKTOP_ENV" = "" ]; then
+    if command -v cinnamon-session &>/dev/null; then DESKTOP_ENV="cinnamon"
+    elif command -v mate-session &>/dev/null; then DESKTOP_ENV="mate"
+    elif command -v gnome-session &>/dev/null; then DESKTOP_ENV="gnome"
+    elif command -v startxfce4 &>/dev/null; then DESKTOP_ENV="xfce"
+    elif command -v startplasma-x11 &>/dev/null; then DESKTOP_ENV="kde"
+    elif command -v startlxde &>/dev/null; then DESKTOP_ENV="lxde"
+    else DESKTOP_ENV="unknown"
+    fi
+    echo ">>> DE detectado automaticamente: $DESKTOP_ENV"
+fi
+
 # Obter usuario logado
 USERNAME="${USER:-$(whoami)}"
 USER_HOME="${HOME:-/home/$USERNAME}"

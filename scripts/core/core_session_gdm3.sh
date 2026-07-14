@@ -29,6 +29,20 @@ echo ">>> Display Manager: $DISPLAY_MANAGER"
 echo ">>> Ambiente: $DESKTOP_ENV"
 
 # ============================================================
+# Detectar Display Manager ativo (se nao definido)
+# ============================================================
+if [ -z "$DISPLAY_MANAGER" ] || [ "$DISPLAY_MANAGER" = "" ]; then
+    if systemctl is-active --quiet lightdm 2>/dev/null; then DISPLAY_MANAGER="lightdm"
+    elif systemctl is-active --quiet gdm3 2>/dev/null; then DISPLAY_MANAGER="gdm3"
+    elif systemctl is-active --quiet sddm 2>/dev/null; then DISPLAY_MANAGER="sddm"
+    elif [ -f /etc/X11/default-display-manager ]; then
+        DISPLAY_MANAGER="$(basename "$(cat /etc/X11/default-display-manager)")"
+    else DISPLAY_MANAGER="unknown"
+    fi
+    echo ">>> DM detectado automaticamente: $DISPLAY_MANAGER"
+fi
+
+# ============================================================
 # Verificar se este script deve ser executado
 # ============================================================
 if [ "$DISPLAY_MANAGER" != "gdm3" ]; then

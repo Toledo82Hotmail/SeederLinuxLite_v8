@@ -29,7 +29,7 @@ OM_ACRONYM="{{OM_ACRONYM}}"
 
 echo ">>> Dominio: $DOMINIO"
 echo ">>> DNS primario: $DNS_PRIMARIO"
-echo ">>> DNS secundario: $DNS_SECUNDARIO}"
+echo ">>> DNS secundario: ${DNS_SECUNDARIO}"
 echo ">>> NTP: $NTP_SERVER"
 
 # ============================================================

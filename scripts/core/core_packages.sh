@@ -19,8 +19,41 @@ echo "============================================================"
 # Variáveis
 # ============================================================
 DESKTOP_ENV="{{DESKTOP_ENV}}"
+INSTALL_DESKTOP="{{INSTALL_DESKTOP}}"
 
-echo ">>> Ambiente grafico: $DESKTOP_ENV"
+echo ">>> Ambiente grafico solicitado (opcional): $DESKTOP_ENV"
+echo ">>> Instalar ambiente grafico: $INSTALL_DESKTOP"
+
+# ============================================================
+# Detectar ambiente grafico ja instalado
+# ============================================================
+detectar_de() {
+    if command -v cinnamon-session &>/dev/null; then echo "cinnamon"
+    elif command -v mate-session &>/dev/null; then echo "mate"
+    elif command -v gnome-session &>/dev/null; then echo "gnome"
+    elif command -v startxfce4 &>/dev/null; then echo "xfce"
+    elif command -v startplasma-x11 &>/dev/null; then echo "kde"
+    elif command -v startlxde &>/dev/null; then echo "lxde"
+    else echo "unknown"
+    fi
+}
+
+detectar_dm() {
+    if systemctl is-active --quiet lightdm 2>/dev/null; then echo "lightdm"
+    elif systemctl is-active --quiet gdm3 2>/dev/null; then echo "gdm3"
+    elif systemctl is-active --quiet sddm 2>/dev/null; then echo "sddm"
+    elif [ -f /etc/X11/default-display-manager ]; then
+        basename "$(cat /etc/X11/default-display-manager)"
+    else echo "unknown"
+    fi
+}
+
+DETECTED_DE="$(detectar_de)"
+DETECTED_DM="$(detectar_dm)"
+export DETECTED_DE DETECTED_DM
+
+echo ">>> DE detectado na estacao: $DETECTED_DE"
+echo ">>> DM detectado na estacao: $DETECTED_DM"
 
 # ============================================================
 # Atualizar sistema
@@ -103,34 +136,41 @@ AUTH_PACKAGES=(
 apt-get install -y "${AUTH_PACKAGES[@]}"
 
 # ============================================================
-# Pacotes do ambiente grafico
+# Pacotes do ambiente grafico (OPCIONAL)
 # ============================================================
-echo ">>> Instalando pacotes do ambiente grafico: $DESKTOP_ENV"
-case "$DESKTOP_ENV" in
-    cinnamon)
-        apt-get install -y cinnamon cinnamon-core lightdm
-        ;;
-    mate)
-        apt-get install -y mate mate-core mate-desktop-environment lightdm
-        ;;
-    gnome)
-        apt-get install -y gnome gnome-core gdm3
-        ;;
-    xfce)
-        apt-get install -y xfce4 xfce4-goodies lightdm
-        ;;
-    kde)
-        apt-get install -y kde-plasma-desktop sddm
-        ;;
-    lxde)
-        apt-get install -y lxde lightdm
-        ;;
-    *)
-        echo ">>> AVISO: Ambiente grafico nao reconhecido: $DESKTOP_ENV"
-        echo ">>> Instalando XFCE como fallback..."
-        apt-get install -y xfce4 xfce4-goodies lightdm
-        ;;
-esac
+# Por padrao NAO instala DE. Somente instala se INSTALL_DESKTOP=true
+# e DESKTOP_ENV estiver definido. Caso contrario, usa o ambiente
+# grafico ja presente na estacao (detectado em DETECTED_DE).
+if [ "$INSTALL_DESKTOP" = "true" ] && [ -n "$DESKTOP_ENV" ] && [ "$DESKTOP_ENV" != "" ]; then
+    echo ">>> Instalando ambiente grafico solicitado: $DESKTOP_ENV"
+    case "$DESKTOP_ENV" in
+        cinnamon)
+            apt-get install -y cinnamon cinnamon-core lightdm
+            ;;
+        mate)
+            apt-get install -y mate mate-core mate-desktop-environment lightdm
+            ;;
+        gnome)
+            apt-get install -y gnome gnome-core gdm3
+            ;;
+        xfce)
+            apt-get install -y xfce4 xfce4-goodies lightdm
+            ;;
+        kde)
+            apt-get install -y kde-plasma-desktop sddm
+            ;;
+        lxde)
+            apt-get install -y lxde lightdm
+            ;;
+        *)
+            echo ">>> AVISO: Ambiente grafico nao reconhecido: $DESKTOP_ENV"
+            echo ">>> Nenhum DE sera instalado. Usando o ja presente: $DETECTED_DE"
+            ;;
+    esac
+else
+    echo ">>> INSTALL_DESKTOP != true. Nao instalando DE."
+    echo ">>> Utilizando ambiente grafico ja presente: $DETECTED_DE"
+fi
 
 # ============================================================
 # Pacotes complementares

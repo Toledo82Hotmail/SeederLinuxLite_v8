@@ -144,8 +144,11 @@ INSERT INTO variable_definitions (name, placeholder, description, type, category
 ('CONKY_PROFILE', '{{CONKY_PROFILE}}', 'Perfil do Conky para monitoracao', 'string', 'branding', FALSE, 'default', 88),
 
 -- Desktop Environment
-('DESKTOP_ENV', '{{DESKTOP_ENV}}', 'Ambiente grafico: cinnamon, mate, gnome, xfce, kde, lxde', 'select', 'ambiente', FALSE, 'cinnamon', 90),
-('DISPLAY_MANAGER', '{{DISPLAY_MANAGER}}', 'Gerenciador de sessao: lightdm, gdm3, sddm', 'select', 'ambiente', FALSE, 'lightdm', 91),
+('DESKTOP_ENV', '{{DESKTOP_ENV}}', 'Ambiente grafico: cinnamon, mate, gnome, xfce, kde, lxde (opcional, apenas se INSTALL_DESKTOP=true)', 'select', 'ambiente', FALSE, '', 90),
+('DISPLAY_MANAGER', '{{DISPLAY_MANAGER}}', 'Gerenciador de sessao: lightdm, gdm3, sddm (opcional, detectado automaticamente se vazio)', 'select', 'ambiente', FALSE, '', 91),
+('INSTALL_DESKTOP', '{{INSTALL_DESKTOP}}', 'Instalar ambiente grafico? Se false, usa o ja instalado na estacao', 'boolean', 'ambiente', FALSE, 'false', 92),
+('DC_IP_LIST', '{{DC_IP_LIST}}', 'Lista de IPs dos Controladores de Dominio (separados por virgula ou espaco)', 'string', 'dominio', FALSE, '10.108.64.51,10.108.64.52', 93),
+('ADMIN_USERNAME', '{{ADMIN_USERNAME}}', 'Nome do usuario administrador do dominio para ingresso no AD', 'string', 'dominio', FALSE, 'Administrator', 94),
 
 -- File Server
 ('SERVIDOR_ARQUIVOS', '{{SERVIDOR_ARQUIVOS}}', 'Servidor de arquivos (SMB/NFS)', 'ip', 'arquivos', FALSE, '10.108.64.20', 100),
@@ -183,9 +186,24 @@ CREATE TABLE IF NOT EXISTS organization_variables (
 CREATE INDEX IF NOT EXISTS idx_org_vars_org ON organization_variables(organization_id);
 CREATE INDEX IF NOT EXISTS idx_org_vars_var ON organization_variables(variable_id);
 
--- Seed: default values for COMARA (org id=1) for all 56 variables
+-- Seed: default values for COMARA (org id=1) for all variables
 INSERT INTO organization_variables (organization_id, variable_id, value)
 SELECT 1, id, COALESCE(default_value, '') FROM variable_definitions
+ON CONFLICT (organization_id, variable_id) DO NOTHING;
+
+-- Seed explicito: garantir presenca de DC_IP_LIST, ADMIN_USERNAME, INSTALL_DESKTOP
+-- para o org 1, mesmo em bases pre-existentes onde estas variaveis foram
+-- adicionadas ao catalogo apos a criacao da organizacao.
+INSERT INTO organization_variables (organization_id, variable_id, value)
+SELECT 1, id, '10.108.64.51,10.108.64.52' FROM variable_definitions WHERE name = 'DC_IP_LIST'
+ON CONFLICT (organization_id, variable_id) DO NOTHING;
+
+INSERT INTO organization_variables (organization_id, variable_id, value)
+SELECT 1, id, 'Administrator' FROM variable_definitions WHERE name = 'ADMIN_USERNAME'
+ON CONFLICT (organization_id, variable_id) DO NOTHING;
+
+INSERT INTO organization_variables (organization_id, variable_id, value)
+SELECT 1, id, 'false' FROM variable_definitions WHERE name = 'INSTALL_DESKTOP'
 ON CONFLICT (organization_id, variable_id) DO NOTHING;
 
 -- ============================================================================
