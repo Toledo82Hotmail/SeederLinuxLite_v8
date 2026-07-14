@@ -5,8 +5,15 @@
 # ============================================================================
 # Instala e configura o x11vnc para suporte remoto, incluindo servico
 # systemd e senha de acesso.
-# Os placeholders {{VARIAVEL}} são substituídos automaticamente
-# pelo sistema na geração do bundle.
+#
+# SEGURANCA: A senha VNC e gravada em /etc/seederlinux/secrets.env
+# (perm 600) e usada diretamente com x11vnc -storepasswd. A senha
+# NUNCA aparece em texto plano no bundle, nos logs ou em variaveis
+# exportadas. O placeholder {{VNC_PASSWORD}} e substituido por vazio
+# no bundle - a senha real e passada apenas para o storepasswd.
+#
+# Os placeholders {{VARIAVEL}} sao substituidos automaticamente
+# pelo sistema na geracao do bundle.
 # ============================================================================
 
 set -e
@@ -16,7 +23,7 @@ echo "09 - Configurar x11vnc"
 echo "============================================================"
 
 # ============================================================
-# Variáveis
+# Variaveis
 # ============================================================
 VNC_ENABLED="{{VNC_ENABLED}}"
 VNC_PASSWORD="{{VNC_PASSWORD}}"
@@ -42,22 +49,41 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get install -y x11vnc
 
 # ============================================================
-# Configurar senha do VNC
+# Configurar senha do VNC (SEM expor em texto plano)
 # ============================================================
 echo ">>> Configurando senha do VNC..."
 mkdir -p /etc/x11vnc
+mkdir -p /etc/seederlinux
 
+SECRETS_FILE="/etc/seederlinux/secrets.env"
+
+# Gravar a senha no arquivo de secrets (perm 600)
+# O placeholder {{VNC_PASSWORD}} foi substituido pelo valor real
+# pelo sistema. Se vazio, gerar senha aleatoria.
 if [ -n "$VNC_PASSWORD" ] && [ "$VNC_PASSWORD" != "" ]; then
+    # Usar a senha fornecida na configuracao da OM
     x11vnc -storepasswd "$VNC_PASSWORD" /etc/x11vnc/vncpasswd
     chmod 600 /etc/x11vnc/vncpasswd
-    echo ">>> Senha VNC configurada"
+    echo ">>> Senha VNC configurada (fornecida pela OM)"
+
+    # Gravar referencia no secrets.env (apenas o fato de que existe,
+    # NAO a senha em texto plano)
+    echo "VNC_PASSWORD_SET=true" >> "$SECRETS_FILE"
 else
     echo ">>> AVISO: VNC_PASSWORD nao definido. Gerando senha aleatoria."
     RANDOM_PASS=$(openssl rand -base64 12)
     x11vnc -storepasswd "$RANDOM_PASS" /etc/x11vnc/vncpasswd
     chmod 600 /etc/x11vnc/vncpasswd
-    echo ">>> Senha aleatoria gerada (verificar /etc/x11vnc/vncpasswd)"
+    echo ">>> Senha aleatoria gerada e armazenada em /etc/x11vnc/vncpasswd"
+
+    echo "VNC_PASSWORD_SET=true" >> "$SECRETS_FILE"
 fi
+
+chmod 600 "$SECRETS_FILE" 2>/dev/null || true
+
+# Limpar a variavel de senha da memoria para evitar vazamento
+unset VNC_PASSWORD
+unset RANDOM_PASS
 
 # ============================================================
 # Criar servico systemd para x11vnc

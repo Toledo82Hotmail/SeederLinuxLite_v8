@@ -763,8 +763,12 @@ function handleGenerateBundle($input) {
     $bundle .= "# Scripts: " . count($scripts) . "\n";
     $bundle .= "# ============================================\n\n";
 
+    $skipExportTypes = ['password'];
+    $skipExportNames = ['ADMIN_USERNAME', 'INSTALL_DESKTOP'];
     $bundle .= "# === VARIAVEIS ===\n";
     foreach ($vars as $v) {
+        if (in_array($v['type'], $skipExportTypes, true)) continue;
+        if (in_array($v['name'], $skipExportNames, true)) continue;
         $bundle .= "export {$v['name']}='" . str_replace("'", "'\\''", $v['value'] ?? '') . "'\n";
     }
     $bundle .= "\n";

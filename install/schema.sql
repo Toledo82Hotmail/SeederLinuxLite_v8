@@ -168,7 +168,10 @@ INSERT INTO variable_definitions (name, placeholder, description, type, category
 
 -- Certificates
 ('CERTIFICATE_BUNDLE', '{{CERTIFICATE_BUNDLE}}', 'URL do bundle de certificados CA', 'url', 'certificados', FALSE, '', 130),
-('CERTIFICATE_AUTO_INSTALL', '{{CERTIFICATE_AUTO_INSTALL}}', 'Instalar certificados automaticamente', 'boolean', 'certificados', FALSE, 'true', 131)
+('CERTIFICATE_AUTO_INSTALL', '{{CERTIFICATE_AUTO_INSTALL}}', 'Instalar certificados automaticamente', 'boolean', 'certificados', FALSE, 'true', 131),
+
+-- SeederLinux Server
+('SEEDER_SERVER', '{{SEEDER_SERVER}}', 'URL base do servidor SeederLinux para check-in do agente', 'url', 'rede', FALSE, '', 140)
 ON CONFLICT (name) DO NOTHING;
 
 -- ============================================================================
@@ -205,6 +208,10 @@ ON CONFLICT (organization_id, variable_id) DO NOTHING;
 
 INSERT INTO organization_variables (organization_id, variable_id, value)
 SELECT 1, id, 'false' FROM variable_definitions WHERE name = 'INSTALL_DESKTOP'
+ON CONFLICT (organization_id, variable_id) DO NOTHING;
+
+INSERT INTO organization_variables (organization_id, variable_id, value)
+SELECT 1, id, 'https://seederlinux.comara.intraer' FROM variable_definitions WHERE name = 'SEEDER_SERVER'
 ON CONFLICT (organization_id, variable_id) DO NOTHING;
 
 -- ============================================================================
