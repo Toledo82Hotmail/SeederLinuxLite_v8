@@ -709,7 +709,7 @@ function handleGenerateBundle($input) {
     if (!$org) jsonError('Organizacao nao encontrada', 404);
 
     $vars = Database::fetchAll(
-        "SELECT vd.name, ov.value FROM organization_variables ov
+        "SELECT vd.name, vd.type, ov.value FROM organization_variables ov
          JOIN variable_definitions vd ON vd.id = ov.variable_id
          WHERE ov.organization_id = ?",
         [$orgId]
