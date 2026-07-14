@@ -1,50 +1,66 @@
 # SeederLinux Lite — Bundle Generator PRD
 
 ## Original Problem Statement
-Corrigir 6 problemas técnicos + 1 problema de arquitetura no gerador de bundle do SeederLinux Lite:
-1. `{DC_IP_LIST}` e `{ADMIN_USERNAME}` não substituídos.
-2. Erro de sintaxe `$DNS_SECUNDARIO}` em core_dns.sh.
-3. `winbind offline logon = false` hardcoded em core_domain.sh.
-4. Três scripts de sessão (14a/14b/14c) sempre incluídos no bundle — deveria ser apenas UM.
-5. Arquitetura: o bundle instala DE ao invés de detectar o já instalado.
+Ferramenta web (PHP + PostgreSQL) que gera bundles bash de provisionamento para estacoes Debian-like em ambientes AD/COMARA.
 
 ## Tech Stack
-- Backend: PHP + PostgreSQL (não React/FastAPI)
-- Frontend: HTML/JS estático (admin.html, login.html)
-- Bundle-gen: scripts bash com placeholders `{{VAR}}` substituídos server-side.
+- Backend: PHP (api/index.php) + PostgreSQL
+- Frontend: HTML/JS estatico (admin.html + assets/js/admin.js + assets/css/style.css)
+- Bundle-gen: scripts bash em scripts/core/*.sh com placeholders `{{VAR}}` substituidos server-side via `substituir_placeholders()`
 
-## What's Implemented (2026-01)
-- **install/schema.sql**: adicionadas 3 novas `variable_definitions` — `DC_IP_LIST`, `ADMIN_USERNAME`, `INSTALL_DESKTOP`. `DESKTOP_ENV` e `DISPLAY_MANAGER` agora têm default vazio (detecção automática). Seed explícito ON CONFLICT DO NOTHING para garantir presença dessas variáveis para org 1 (COMARA).
-- **scripts/core/core_dns.sh**: corrigido `$DNS_SECUNDARIO}` → `${DNS_SECUNDARIO}`.
-- **scripts/core/core_domain.sh**: adicionada var `AUTH_METHOD`; `winbind offline logon` agora usa `${WINBIND_OFFLINE}` calculado dinamicamente conforme `AUTH_METHOD` e `OFFLINE_AUTH_ENABLED`.
-- **scripts/core/core_packages.sh**: removida instalação obrigatória de DE. Adicionadas funções `detectar_de()` / `detectar_dm()` exportando `DETECTED_DE` / `DETECTED_DM`. Instalação de DE só ocorre se `INSTALL_DESKTOP=true`.
-- **scripts/core/core_branding.sh**: fallback automático para detectar `DESKTOP_ENV` e `DISPLAY_MANAGER` quando não fornecidos.
-- **scripts/core/core_session_lightdm.sh, core_session_gdm3.sh, core_session_sddm.sh**: fallback automático para detectar `DISPLAY_MANAGER` via `systemctl is-active` + `/etc/X11/default-display-manager`.
-- **scripts/core/core_logon.sh, core_logoff.sh**: fallback automático para detectar `DESKTOP_ENV`.
-- **api/index.php `handleGenerateBundle()`**: agora carrega `DISPLAY_MANAGER` das variáveis da OM, mapeia para o script de sessão correspondente (`lightdm`/`gdm3`/`sddm`), e filtra `array_filter` para incluir apenas o script correto (fallback `lightdm`). Preserva todos os outros scripts.
+## Sessao 1 (Jan 2026): Correcao de 6 bugs + arquitetura
+- schema.sql: adicionadas variaveis `DC_IP_LIST`, `ADMIN_USERNAME`, `INSTALL_DESKTOP` + seed explicito. `DESKTOP_ENV`/`DISPLAY_MANAGER` com default vazio (auto-detect).
+- core_dns.sh: corrigido `$DNS_SECUNDARIO}` -> `${DNS_SECUNDARIO}`
+- core_domain.sh: `winbind offline logon` agora condicional a `AUTH_METHOD` + `OFFLINE_AUTH_ENABLED`; declarada var `AUTH_METHOD`
+- core_packages.sh: removida instalacao obrigatoria de DE; funcoes `detectar_de()`/`detectar_dm()` exportam `DETECTED_DE`/`DETECTED_DM`; DE so instala se `INSTALL_DESKTOP=true`
+- core_branding.sh, core_logon.sh, core_logoff.sh, core_session_{lightdm,gdm3,sddm}.sh: fallback de auto-deteccao
+- api/index.php `handleGenerateBundle()`: filtra scripts `core_session_*.sh` mantendo apenas o correspondente a `DISPLAY_MANAGER` (fallback lightdm)
 
-## Verified
-- Todos os arquivos PHP passam `php -l`.
-- Todos os scripts bash passam `bash -n`.
-- Simulação de substituição PHP confirmou: `DC_IP_LIST` e `ADMIN_USERNAME` substituídos; sintaxe DNS_SECUNDARIO correta; winbind condicional aplicado.
-- Simulação do filtro `handleGenerateBundle` confirmou: para cada valor de `DISPLAY_MANAGER` (lightdm/gdm3/sddm/vazio/desconhecido), apenas o script correspondente é mantido, e fallback lightdm funciona.
+## Sessao 2 (Jan 2026): Refatoracao UX admin
+- **install/schema_update_v5_ux_refactor.sql**: migracao safe para bases existentes.
+  - DNS movidos para categoria `rede`
+  - WALLPAPER/LOGO/GREETER -> categoria nova `assets`, tipo `image`
+  - CONKY_PROFILE -> categoria nova `monitoramento`, tipo `select`
+  - COMPARTILHAMENTOS/PRINTERS/NO_PROXY -> tipo `tags`
+  - Nova variavel `CONKY_CONFIG` (JSON) para configuracao avancada do Conky
+- **schema.sql** (fresh install): mesmas mudancas aplicadas diretamente
+- **assets/js/admin.js**:
+  - Novas categorias `assets`, `monitoramento`, `ambiente`, `aplicacoes`
+  - `variableOptions` expandido: DESKTOP_ENV, DISPLAY_MANAGER, AUTH_METHOD, CONKY_PROFILE, INSTALL_APPS, INSTALL_LEGADOS, INSTALL_DESKTOP, VNC_ENABLED como boolean
+  - `dependentFields`: campos ocultos quando toggle pai desligado (VNC_PASSWORD, DESKTOP_ENV, OCS_*, CERTIFICATE_BUNDLE, OFFLINE_AUTH_DAYS)
+  - `groupedVariables`: renderiza GRUPO_ADMIN_AD + GRUPO_ADMIN_LINUX + GRUPO_DASTI num bloco unico "Grupos com privilegio sudo"
+  - `renderTypedInput` novos tipos: `tags` (chips input), `image` (preview + URL), `json_conky` (painel expandido)
+  - `renderConkyPanel`: aparencia (posicao, transparencia, cores via color picker, fonte, gap_x/y, intervalo) + informacoes exibidas (CPU/RAM/Disco/Rede/Top procs/Data-hora) + interfaces/particoes configuraveis
+  - `handleTagInput`/`removeTag`/`refreshTagsList`: gerenciamento das chips
+  - `updateAssetPreview`: preview `<img>` atualiza on-input
+  - `updateConkyField`: serializa alteracoes no hidden input
+  - Re-render automatico quando toggle pai muda (mostra/esconde dependentes)
+  - `saveVariables` prefere valores de hidden inputs (tags/conky) para serializacao correta
+- **assets/css/style.css**: novos estilos para `.tags-wrapper`/`.tag-chip`/`.tag-remove`/`.tag-input`, `.asset-field`/`.asset-preview`/`.asset-preview-empty`, `.conky-panel`/`.conky-section`/`.conky-grid`/`.conky-color`
+- **scripts/core/core_conky.sh**:
+  - Declara `CONKY_CONFIG` (JSON) alem de `CONKY_PROFILE`
+  - Instala `jq` alem de `conky conky-all`
+  - `parse_json()` usa `has()` para preservar booleans false (bug corrigido)
+  - Gera `.conkyrc` dinamicamente aplicando posicao, cores, transparencia, gaps, particao/interface configuraveis, e includes condicionais para CPU/RAM/Disco/Rede/Top/Data-hora
+  - Fallback de deteccao de DE (mesmo padrao dos outros scripts)
 
-## Files Modified (Escopo Restrito)
+## Files Modified
 - install/schema.sql
-- api/index.php (apenas handleGenerateBundle)
-- scripts/core/core_dns.sh
-- scripts/core/core_domain.sh
-- scripts/core/core_packages.sh
-- scripts/core/core_branding.sh
-- scripts/core/core_session_lightdm.sh
-- scripts/core/core_session_gdm3.sh
-- scripts/core/core_session_sddm.sh
-- scripts/core/core_logon.sh
-- scripts/core/core_logoff.sh
+- install/schema_update_v5_ux_refactor.sql (novo)
+- assets/js/admin.js
+- assets/css/style.css
+- scripts/core/core_conky.sh
+- api/index.php (sessao anterior)
+- 9 scripts em scripts/core/ (sessao anterior)
 
-Não foram alterados: lib/config.php, admin.html, admin.js, login.html, lib/functions.php (o `substituir_placeholders` já usa `str_replace` puro sem regex; nomes com underscore/dígitos funcionam).
+## Testing
+- `bash -n` limpo em todos scripts bash
+- `php -l` limpo em api/index.php e lib/functions.php
+- `acorn.parse` valida admin.js (58 KB)
+- `tests/test_conky_parse.sh`: 5/5 assertions passam (position, transparent=false, show_top=false, show_datetime=true, fallback)
 
 ## Backlog / Nice-to-have
-- Testar bundle real em VM Debian/Ubuntu/Mint/Zorin com diferentes DEs.
-- Adicionar UI no admin.html para toggle `INSTALL_DESKTOP` e seleção condicional de `DESKTOP_ENV`.
-- Adicionar validação no bundle: se `INSTALL_DESKTOP=false` e nenhum DE detectado, avisar/abortar.
+- Endpoint de upload centralizado para assets (item 5 opcao b) — nao implementado
+- Substituir 3 vars sudo por variavel unica SUDO_GROUPS JSON — nao implementado (compat mantida)
+- Testar bundle real em VM Debian/Ubuntu/Mint/Zorin com diferentes DEs
+- Estilos avancados de tema (dark/light theme picker global)

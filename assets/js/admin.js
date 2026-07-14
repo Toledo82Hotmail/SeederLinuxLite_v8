@@ -14,25 +14,59 @@ let scriptTab = 'Core';
 const categoryLabels = {
     'dominio': 'Dominio', 'rede': 'Rede', 'proxy': 'Proxy', 'inventario': 'Inventario',
     'navegador': 'Navegador', 'seguranca': 'Seguranca', 'branding': 'Identidade',
+    'assets': 'Identidade Visual & Assets', 'monitoramento': 'Monitoramento (Conky)',
+    'ambiente': 'Ambiente Grafico',
     'generic': 'Geral', 'custom': 'Custom', 'arquivos': 'Arquivos',
     'acesso_remoto': 'Acesso Remoto', 'impressoras': 'Impressoras',
-    'certificados': 'Certificados', 'repositorios': 'Repositorios'
+    'certificados': 'Certificados', 'repositorios': 'Repositorios',
+    'aplicacoes': 'Aplicacoes'
 };
 
 const categoryOrder = [
-    'dominio', 'rede', 'proxy', 'repositorios', 'navegador', 'branding',
-    'arquivos', 'impressoras', 'inventario', 'acesso_remoto', 'certificados', 'seguranca', 'generic', 'custom'
+    'dominio', 'rede', 'proxy', 'repositorios', 'ambiente', 'navegador',
+    'branding', 'assets', 'monitoramento',
+    'arquivos', 'impressoras', 'inventario', 'aplicacoes',
+    'acesso_remoto', 'certificados', 'seguranca', 'generic', 'custom'
 ];
+
+// Campos dependentes: chave = var pai, valor = lista de vars que aparecem apenas se pai=true
+const dependentFields = {
+    'VNC_ENABLED': ['VNC_PASSWORD'],
+    'INSTALL_DESKTOP': ['DESKTOP_ENV'],
+    'INVENTORY_ENABLED': ['OCS_SERVER', 'OCS_TAG', 'GLPI_SERVER'],
+    'CERTIFICATE_AUTO_INSTALL': ['CERTIFICATE_BUNDLE'],
+    'OFFLINE_AUTH_ENABLED': ['OFFLINE_AUTH_DAYS']
+};
+
+// Grupo visual: 3 vars renderizadas juntas em um bloco unico
+const groupedVariables = {
+    'GRUPO_ADMIN_AD': {block: 'sudo_groups', label: 'Grupo AD (Dominio)', order: 1},
+    'GRUPO_ADMIN_LINUX': {block: 'sudo_groups', label: 'Grupo Local', order: 2},
+    'GRUPO_DASTI': {block: 'sudo_groups', label: 'Grupo DASTI', order: 3}
+};
+const groupLabels = {
+    'sudo_groups': 'Grupos com privilegio sudo'
+};
 
 const variableOptions = {
     'PROXY_MODE': ['NONE', 'MANUAL', 'PAC'],
     'REPOSITORY_MODE': ['PUBLIC', 'MIRROR', 'HYBRID', 'CUSTOM'],
     'REMOTE_METHOD': ['ssh', 'xrdp', 'anydesk', 'rustdesk'],
     'PROXY_PORTA': ['80', '8080', '3128', '8888'],
+    'DESKTOP_ENV': ['', 'cinnamon', 'mate', 'gnome', 'xfce', 'kde', 'lxde'],
+    'DISPLAY_MANAGER': ['', 'lightdm', 'gdm3', 'sddm'],
+    'AUTH_METHOD': ['sssd', 'winbind'],
+    'CONKY_PROFILE': ['default', 'minimal', 'full', 'custom'],
     'OFFLINE_AUTH_ENABLED': 'boolean',
     'INVENTORY_ENABLED': 'boolean',
-    'CERTIFICATE_AUTO_INSTALL': 'boolean'
+    'CERTIFICATE_AUTO_INSTALL': 'boolean',
+    'INSTALL_APPS': 'boolean',
+    'INSTALL_LEGADOS': 'boolean',
+    'INSTALL_DESKTOP': 'boolean',
+    'VNC_ENABLED': 'boolean'
 };
+
+const conkyPositions = ['top_left', 'top_right', 'top_middle', 'middle_left', 'middle_right', 'bottom_left', 'bottom_right', 'bottom_middle'];
 
 const roleLabels = {
     'admin_gap': 'Admin GAP',
@@ -382,6 +416,21 @@ function renderVariables(vars) {
         return;
     }
 
+    // Mapa var->value para resolver dependencias e grupos
+    const varByName = {};
+    vars.forEach(v => { varByName[v.name] = v; });
+
+    // Vars ocultas por dependencia
+    const hiddenNames = new Set();
+    Object.entries(dependentFields).forEach(([parent, children]) => {
+        const p = varByName[parent];
+        if (p) {
+            const val = p.current_value;
+            const active = val === 'true' || val === '1' || val === true;
+            if (!active) children.forEach(c => hiddenNames.add(c));
+        }
+    });
+
     const cats = [...new Set(vars.map(v => v.category || 'generic'))].sort((a, b) => {
         const ai = categoryOrder.indexOf(a);
         const bi = categoryOrder.indexOf(b);
@@ -399,20 +448,57 @@ function renderVariables(vars) {
     const search = document.getElementById('var-search')?.value?.toLowerCase() || '';
     if (search) filtered = filtered.filter(v => v.name.toLowerCase().includes(search));
 
+    // Filtrar ocultos
+    filtered = filtered.filter(v => !hiddenNames.has(v.name));
+
     html += '<div class="var-grid">';
     if (activeCategory === 'Todas') {
         cats.forEach(c => {
             const catVars = filtered.filter(v => (v.category || 'generic') === c);
             if (!catVars.length) return;
             html += `<h4 class="col-span-2 mt-4 first:mt-0 text-sm font-semibold text-slate-400 uppercase">${categoryLabels[c] || c}</h4>`;
-            catVars.forEach(v => html += renderVarRow(v));
+            html += renderVarsWithGroups(catVars);
         });
     } else {
-        filtered.forEach(v => html += renderVarRow(v));
+        html += renderVarsWithGroups(filtered);
     }
     html += '</div>';
 
     el.innerHTML = html;
+}
+
+// Renderiza vars agrupando as que pertencem ao mesmo bloco visual (ex: sudo_groups)
+function renderVarsWithGroups(vars) {
+    let html = '';
+    const grouped = {};
+    const rest = [];
+    vars.forEach(v => {
+        const g = groupedVariables[v.name];
+        if (g) {
+            grouped[g.block] = grouped[g.block] || [];
+            grouped[g.block].push(v);
+        } else {
+            rest.push(v);
+        }
+    });
+    // Bloco de grupos primeiro
+    Object.entries(grouped).forEach(([blockKey, blockVars]) => {
+        blockVars.sort((a, b) => groupedVariables[a.name].order - groupedVariables[b.name].order);
+        html += `<div class="col-span-2 mb-2 p-4 bg-slate-800/40 border border-slate-700 rounded-lg">
+            <div class="text-sm font-semibold text-slate-200 mb-3">${groupLabels[blockKey] || blockKey}</div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">`;
+        blockVars.forEach(v => {
+            const label = groupedVariables[v.name].label;
+            html += `<div>
+                <label class="block text-xs font-medium text-slate-400 mb-1">${Utils.escapeHtml(label)}</label>
+                ${renderTypedInput(v)}
+                <p class="text-slate-500 text-xs mt-1 font-mono">${Utils.escapeHtml(v.name)}</p>
+            </div>`;
+        });
+        html += `</div></div>`;
+    });
+    rest.forEach(v => html += renderVarRow(v));
+    return html;
 }
 
 function renderVarRow(v) {
@@ -458,17 +544,43 @@ function renderTypedInput(v) {
 
     if (opts === 'boolean' || v.type === 'boolean') {
         const checked = val === 'true' || val === '1' || val === true;
+        const hasDeps = dependentFields[v.name] ? 'data-parent-toggle="1"' : '';
         return `
             <label class="toggle-switch">
-                <input type="checkbox" data-var-id="${varId}" ${checked ? 'checked' : ''}>
+                <input type="checkbox" data-var-id="${varId}" ${hasDeps} ${checked ? 'checked' : ''}>
                 <span class="toggle-slider"></span>
             </label>
             <span class="ml-2 text-sm text-slate-300">${checked ? 'Ativo' : 'Inativo'}</span>`;
     }
     if (Array.isArray(opts)) {
         return `<select data-var-id="${varId}" class="var-select">
-            ${opts.map(o => `<option value="${o}" ${val === o ? 'selected' : ''}>${o}</option>`).join('')}
+            ${opts.map(o => `<option value="${o}" ${val === o ? 'selected' : ''}>${o === '' ? '(auto-detectar)' : o}</option>`).join('')}
         </select>`;
+    }
+    if (v.type === 'tags') {
+        const items = String(val).split(',').map(s => s.trim()).filter(Boolean);
+        const chips = items.map((t, i) =>
+            `<span class="tag-chip" data-idx="${i}">${Utils.escapeHtml(t)}<button type="button" class="tag-remove" onclick="removeTag(${varId}, ${i})" title="Remover">&times;</button></span>`
+        ).join('');
+        return `
+            <div class="tags-wrapper" data-var-id="${varId}" data-type="tags">
+                <div class="tags-list" id="tags-list-${varId}">${chips || '<span class="text-slate-500 text-xs">Nenhum item</span>'}</div>
+                <input type="text" class="tag-input" placeholder="Digite e pressione Enter" onkeydown="handleTagInput(event, ${varId})">
+                <input type="hidden" data-var-id="${varId}" data-type="tags-hidden" value="${Utils.escapeHtml(items.join(','))}">
+            </div>`;
+    }
+    if (v.type === 'image' || v.name.endsWith('_URL') && ['WALLPAPER_URL','WALLPAPER_LOGIN_URL','LOGO_URL','GREETER_URL'].includes(v.name)) {
+        const preview = val
+            ? `<img src="${Utils.escapeHtml(val)}" class="asset-preview" onerror="this.style.display='none'" alt="Preview">`
+            : `<div class="asset-preview-empty">Sem imagem</div>`;
+        return `
+            <div class="asset-field">
+                ${preview}
+                <input type="url" data-var-id="${varId}" value="${Utils.escapeHtml(val)}" class="var-input" placeholder="URL da imagem" oninput="updateAssetPreview(this)">
+            </div>`;
+    }
+    if (v.type === 'json_conky' || v.name === 'CONKY_CONFIG') {
+        return renderConkyPanel(v, varId, val);
     }
     if (v.type === 'array') {
         return `<textarea data-var-id="${varId}" rows="2" class="var-textarea" placeholder="Separe multiplos valores por virgula">${Utils.escapeHtml(val)}</textarea>`;
@@ -485,6 +597,119 @@ function renderTypedInput(v) {
     return `<input type="text" data-var-id="${varId}" value="${Utils.escapeHtml(val)}" class="var-input">`;
 }
 
+// ============ CONKY EXPANDED PANEL ============
+function renderConkyPanel(v, varId, val) {
+    let cfg;
+    try { cfg = JSON.parse(val || '{}'); } catch (e) { cfg = {}; }
+    cfg = Object.assign({
+        position: 'top_right', transparent: true, color_text: '#FFFFFF', color_bg: '#000000',
+        font_size: 10, gap_x: 10, gap_y: 40,
+        show_cpu: true, show_ram: true, show_disk: true, disk_partition: '/',
+        show_network: true, network_interface: 'eth0', show_top_processes: true,
+        show_datetime: true, update_interval: 1.0
+    }, cfg);
+
+    const posOpts = conkyPositions.map(p => `<option value="${p}" ${cfg.position===p?'selected':''}>${p}</option>`).join('');
+
+    return `
+    <div class="conky-panel" data-var-id="${varId}" data-type="json_conky">
+        <input type="hidden" data-var-id="${varId}" data-type="conky-hidden" id="conky-hidden-${varId}" value='${JSON.stringify(cfg).replace(/'/g,"&apos;")}'>
+        <div class="conky-section">
+            <div class="conky-section-title">Aparencia</div>
+            <div class="conky-grid">
+                <label>Posicao<select class="var-select" onchange="updateConkyField(${varId},'position',this.value)">${posOpts}</select></label>
+                <label class="conky-inline">Transparente<input type="checkbox" ${cfg.transparent?'checked':''} onchange="updateConkyField(${varId},'transparent',this.checked)"></label>
+                <label>Cor do texto<input type="color" class="conky-color" value="${cfg.color_text}" onchange="updateConkyField(${varId},'color_text',this.value)"></label>
+                <label>Cor de fundo<input type="color" class="conky-color" value="${cfg.color_bg}" onchange="updateConkyField(${varId},'color_bg',this.value)"></label>
+                <label>Tamanho da fonte<input type="number" min="6" max="24" class="var-input" value="${cfg.font_size}" onchange="updateConkyField(${varId},'font_size',parseInt(this.value))"></label>
+                <label>Margem X (gap_x)<input type="number" min="0" max="500" class="var-input" value="${cfg.gap_x}" onchange="updateConkyField(${varId},'gap_x',parseInt(this.value))"></label>
+                <label>Margem Y (gap_y)<input type="number" min="0" max="500" class="var-input" value="${cfg.gap_y}" onchange="updateConkyField(${varId},'gap_y',parseInt(this.value))"></label>
+                <label>Intervalo atualizacao (s)<input type="number" min="0.1" step="0.1" class="var-input" value="${cfg.update_interval}" onchange="updateConkyField(${varId},'update_interval',parseFloat(this.value))"></label>
+            </div>
+        </div>
+        <div class="conky-section">
+            <div class="conky-section-title">Informacoes exibidas</div>
+            <div class="conky-grid">
+                <label class="conky-inline"><input type="checkbox" ${cfg.show_cpu?'checked':''} onchange="updateConkyField(${varId},'show_cpu',this.checked)">Mostrar CPU</label>
+                <label class="conky-inline"><input type="checkbox" ${cfg.show_ram?'checked':''} onchange="updateConkyField(${varId},'show_ram',this.checked)">Mostrar RAM/Swap</label>
+                <label class="conky-inline"><input type="checkbox" ${cfg.show_disk?'checked':''} onchange="updateConkyField(${varId},'show_disk',this.checked)">Mostrar Disco</label>
+                <label>Particao do disco<input type="text" class="var-input font-mono" value="${Utils.escapeHtml(cfg.disk_partition)}" onchange="updateConkyField(${varId},'disk_partition',this.value)"></label>
+                <label class="conky-inline"><input type="checkbox" ${cfg.show_network?'checked':''} onchange="updateConkyField(${varId},'show_network',this.checked)">Mostrar Rede</label>
+                <label>Interface de rede<input type="text" class="var-input font-mono" value="${Utils.escapeHtml(cfg.network_interface)}" onchange="updateConkyField(${varId},'network_interface',this.value)"></label>
+                <label class="conky-inline"><input type="checkbox" ${cfg.show_top_processes?'checked':''} onchange="updateConkyField(${varId},'show_top_processes',this.checked)">Top 3 processos</label>
+                <label class="conky-inline"><input type="checkbox" ${cfg.show_datetime?'checked':''} onchange="updateConkyField(${varId},'show_datetime',this.checked)">Data/Hora</label>
+            </div>
+        </div>
+    </div>`;
+}
+
+// ============ TAG/CHIP INPUT HANDLERS ============
+function handleTagInput(e, varId) {
+    if (e.key !== 'Enter' && e.key !== ',') return;
+    e.preventDefault();
+    const val = e.target.value.trim().replace(/,/g, '');
+    if (!val) return;
+    const hidden = document.querySelector(`input[data-var-id="${varId}"][data-type="tags-hidden"]`);
+    const items = hidden.value ? hidden.value.split(',').map(s => s.trim()).filter(Boolean) : [];
+    if (items.includes(val)) { e.target.value = ''; return; }
+    items.push(val);
+    hidden.value = items.join(',');
+    e.target.value = '';
+    refreshTagsList(varId, items);
+}
+window.handleTagInput = handleTagInput;
+
+function removeTag(varId, idx) {
+    const hidden = document.querySelector(`input[data-var-id="${varId}"][data-type="tags-hidden"]`);
+    const items = hidden.value.split(',').map(s => s.trim()).filter(Boolean);
+    items.splice(idx, 1);
+    hidden.value = items.join(',');
+    refreshTagsList(varId, items);
+}
+window.removeTag = removeTag;
+
+function refreshTagsList(varId, items) {
+    const listEl = document.getElementById(`tags-list-${varId}`);
+    if (!listEl) return;
+    listEl.innerHTML = items.length
+        ? items.map((t, i) => `<span class="tag-chip" data-idx="${i}">${Utils.escapeHtml(t)}<button type="button" class="tag-remove" onclick="removeTag(${varId}, ${i})">&times;</button></span>`).join('')
+        : '<span class="text-slate-500 text-xs">Nenhum item</span>';
+}
+
+// ============ IMAGE PREVIEW ============
+function updateAssetPreview(inputEl) {
+    const wrapper = inputEl.closest('.asset-field');
+    if (!wrapper) return;
+    const url = inputEl.value.trim();
+    const oldImg = wrapper.querySelector('.asset-preview, .asset-preview-empty');
+    if (oldImg) oldImg.remove();
+    let previewEl;
+    if (url) {
+        previewEl = document.createElement('img');
+        previewEl.src = url;
+        previewEl.className = 'asset-preview';
+        previewEl.alt = 'Preview';
+        previewEl.onerror = () => { previewEl.style.display = 'none'; };
+    } else {
+        previewEl = document.createElement('div');
+        previewEl.className = 'asset-preview-empty';
+        previewEl.textContent = 'Sem imagem';
+    }
+    wrapper.insertBefore(previewEl, inputEl);
+}
+window.updateAssetPreview = updateAssetPreview;
+
+// ============ CONKY FIELD UPDATE ============
+function updateConkyField(varId, field, value) {
+    const hidden = document.getElementById(`conky-hidden-${varId}`);
+    if (!hidden) return;
+    let cfg;
+    try { cfg = JSON.parse(hidden.value.replace(/&apos;/g, "'")); } catch (e) { cfg = {}; }
+    cfg[field] = value;
+    hidden.value = JSON.stringify(cfg);
+}
+window.updateConkyField = updateConkyField;
+
 function filterByCategory(c) {
     activeCategory = c;
     renderVariables(allVariables);
@@ -495,10 +720,29 @@ async function saveVariables() {
     if (!currentOrgId) return;
 
     const updates = {};
+    // Coleta apenas UM input por variable_id (prefere o "hidden" com dados serializados)
+    const collected = {};
     document.querySelectorAll('[data-var-id]').forEach(el => {
-        const value = el.type === 'checkbox' ? (el.checked ? 'true' : 'false') : el.value;
-        updates[el.dataset.varId] = value;
+        const varId = el.dataset.varId;
+        const dtype = el.dataset.type;
+        let value;
+        if (el.type === 'checkbox' && !dtype) {
+            value = el.checked ? 'true' : 'false';
+        } else if (dtype === 'tags-hidden' || dtype === 'conky-hidden') {
+            value = el.value;
+        } else if (el.tagName === 'INPUT' && el.type === 'file') {
+            return; // ignora file inputs
+        } else if (dtype === 'tags' || dtype === 'json_conky') {
+            return; // wrapper — ja tratado pelo hidden
+        } else {
+            value = el.value;
+        }
+        // Prefere valores de hidden (mais confiaveis para tags/conky)
+        if (!(varId in collected) || dtype === 'tags-hidden' || dtype === 'conky-hidden') {
+            collected[varId] = value;
+        }
     });
+    Object.assign(updates, collected);
 
     const res = await API.post('variables-update', { organization_id: currentOrgId, variables: updates });
     if (res.success) {
@@ -509,6 +753,19 @@ async function saveVariables() {
     }
 }
 window.saveVariables = saveVariables;
+
+// Re-render vars quando toggle "pai" muda (para esconder/mostrar dependentes)
+document.addEventListener('change', (e) => {
+    if (e.target && e.target.matches('input[type="checkbox"][data-parent-toggle="1"]')) {
+        // Atualiza current_value em allVariables e re-renderiza
+        const varId = e.target.dataset.varId;
+        const v = allVariables.find(x => String(x.id) === String(varId));
+        if (v) {
+            v.current_value = e.target.checked ? 'true' : 'false';
+            renderVariables(allVariables);
+        }
+    }
+});
 
 async function addVariable(e) {
     e.preventDefault();

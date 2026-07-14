@@ -90,8 +90,8 @@ INSERT INTO variable_definitions (name, placeholder, description, type, category
 ('DC_IP', '{{DC_IP}}', 'IP do Controlador de Dominio', 'ip', 'dominio', TRUE, '10.108.64.51', 3),
 ('DC_SECUNDARIO_IP', '{{DC_SECUNDARIO_IP}}', 'IP do Controlador de Dominio secundario', 'ip', 'dominio', FALSE, '', 4),
 ('DNS_INTERNET', '{{DNS_INTERNET}}', 'DNS para internet (fallback)', 'ip', 'rede', TRUE, '10.108.64.27', 5),
-('DNS_PRIMARIO', '{{DNS_PRIMARIO}}', 'DNS primario para resolucao de nomes', 'ip', 'dominio', TRUE, '10.108.64.51', 6),
-('DNS_SECUNDARIO', '{{DNS_SECUNDARIO}}', 'DNS secundario (fallback)', 'ip', 'dominio', FALSE, '10.108.64.27', 7),
+('DNS_PRIMARIO', '{{DNS_PRIMARIO}}', 'DNS primario para resolucao de nomes', 'ip', 'rede', TRUE, '10.108.64.51', 6),
+('DNS_SECUNDARIO', '{{DNS_SECUNDARIO}}', 'DNS secundario (fallback)', 'ip', 'rede', FALSE, '10.108.64.27', 7),
 ('NTP_SERVER', '{{NTP_SERVER}}', 'Servidor NTP para sincronizacao de horario', 'ip', 'dominio', FALSE, '10.108.64.51', 8),
 ('OU_PADRAO', '{{OU_PADRAO}}', 'Unidade Organizacional padrao no AD', 'string', 'dominio', FALSE, 'OU=Estacoes,DC=comara,DC=intraer', 9),
 ('GRUPO_ADMIN', '{{GRUPO_ADMIN}}', 'Grupo administrador do dominio', 'string', 'dominio', TRUE, 'Domain Admins', 10),
@@ -114,7 +114,7 @@ INSERT INTO variable_definitions (name, placeholder, description, type, category
 -- Printers
 ('PRINT_SERVER', '{{PRINT_SERVER}}', 'Servidor de impressao', 'ip', 'rede', FALSE, '10.108.64.20', 40),
 ('DEFAULT_PRINTER', '{{DEFAULT_PRINTER}}', 'Impressora padrao', 'string', 'impressoras', FALSE, '', 41),
-('PRINTERS', '{{PRINTERS}}', 'Lista de impressoras (separadas por virgula)', 'array', 'impressoras', FALSE, '', 42),
+('PRINTERS', '{{PRINTERS}}', 'Lista de impressoras (adicione uma por vez)', 'tags', 'impressoras', FALSE, '', 42),
 
 -- Proxy
 ('PROXY_HTTP', '{{PROXY_HTTP}}', 'Proxy HTTP corporativo', 'ip', 'proxy', FALSE, '10.108.88.4', 50),
@@ -122,7 +122,7 @@ INSERT INTO variable_definitions (name, placeholder, description, type, category
 ('PROXY_URL', '{{PROXY_URL}}', 'URL completa do proxy', 'url', 'proxy', FALSE, 'http://proxy.comara.intraer:8080', 52),
 ('PROXY_MODE', '{{PROXY_MODE}}', 'Modo de proxy: NONE, MANUAL, PAC', 'select', 'navegador', FALSE, 'MANUAL', 53),
 ('PAC_URL', '{{PAC_URL}}', 'URL do arquivo PAC (Proxy Auto-Config)', 'url', 'navegador', FALSE, '', 54),
-('NO_PROXY', '{{NO_PROXY}}', 'Lista de excecoes de proxy (separadas por virgula)', 'array', 'navegador', FALSE, 'localhost,127.0.0.1,comara.intraer', 55),
+('NO_PROXY', '{{NO_PROXY}}', 'Lista de excecoes de proxy (adicione uma por vez)', 'tags', 'navegador', FALSE, 'localhost,127.0.0.1,comara.intraer', 55),
 
 -- Browser
 ('HOMEPAGE', '{{HOMEPAGE}}', 'Pagina inicial do portal', 'url', 'navegador', FALSE, 'www.comara.intraer', 60),
@@ -132,16 +132,17 @@ INSERT INTO variable_definitions (name, placeholder, description, type, category
 ('GRUPO_ADMIN_LINUX', '{{GRUPO_ADMIN_LINUX}}', 'Grupo local para sudo', 'string', 'seguranca', TRUE, 'linux-admins', 71),
 ('GRUPO_DASTI', '{{GRUPO_DASTI}}', 'Grupo DASTI para sudo', 'string', 'seguranca', FALSE, '_DASTI', 72),
 
--- Branding
+-- Branding / Identidade Visual (Assets)
 ('OM_ACRONYM', '{{OM_ACRONYM}}', 'Sigla da Organizacao Militar', 'string', 'branding', FALSE, 'COMARA', 80),
-('OM_NAME', '{{OM_NAME}}', 'Nome completo da Organizacao Militar', 'string', 'identidade', FALSE, '', 81),
+('OM_NAME', '{{OM_NAME}}', 'Nome completo da Organizacao Militar', 'string', 'branding', FALSE, '', 81),
 ('DISPLAY_NAME', '{{DISPLAY_NAME}}', 'Nome de exibicao da OM', 'string', 'branding', FALSE, 'Comando da Comara', 82),
-('WALLPAPER_URL', '{{WALLPAPER_URL}}', 'URL do wallpaper da OM', 'url', 'branding', FALSE, '/assets/wallpapers/default.jpg', 83),
-('WALLPAPER_LOGIN_URL', '{{WALLPAPER_LOGIN_URL}}', 'URL do wallpaper da tela de login', 'url', 'branding', FALSE, '', 84),
-('LOGO_URL', '{{LOGO_URL}}', 'URL do logo da OM', 'url', 'branding', FALSE, '/assets/logos/default.png', 85),
-('GREETER_URL', '{{GREETER_URL}}', 'URL do greeter personalizado', 'url', 'branding', FALSE, '', 86),
+('WALLPAPER_URL', '{{WALLPAPER_URL}}', 'URL do wallpaper da area de trabalho', 'image', 'assets', FALSE, '/assets/wallpapers/default.jpg', 83),
+('WALLPAPER_LOGIN_URL', '{{WALLPAPER_LOGIN_URL}}', 'URL do wallpaper da tela de login', 'image', 'assets', FALSE, '', 84),
+('LOGO_URL', '{{LOGO_URL}}', 'URL do logo da OM', 'image', 'assets', FALSE, '/assets/logos/default.png', 85),
+('GREETER_URL', '{{GREETER_URL}}', 'URL do greeter personalizado (tela de boas-vindas)', 'image', 'assets', FALSE, '', 86),
 ('THEME', '{{THEME}}', 'Tema GTK a ser aplicado', 'string', 'branding', FALSE, 'Adwaita', 87),
-('CONKY_PROFILE', '{{CONKY_PROFILE}}', 'Perfil do Conky para monitoracao', 'string', 'branding', FALSE, 'default', 88),
+('CONKY_PROFILE', '{{CONKY_PROFILE}}', 'Perfil base do Conky (default, minimal, full, custom)', 'select', 'monitoramento', FALSE, 'default', 88),
+('CONKY_CONFIG', '{{CONKY_CONFIG}}', 'Configuracao avancada do Conky (JSON com cores, posicao, modulos exibidos)', 'json_conky', 'monitoramento', FALSE, '{"position":"top_right","transparent":true,"color_text":"#FFFFFF","color_bg":"#000000","font_size":10,"gap_x":10,"gap_y":40,"show_cpu":true,"show_ram":true,"show_disk":true,"disk_partition":"/","show_network":true,"network_interface":"eth0","show_top_processes":true,"show_datetime":true,"update_interval":1.0}', 89),
 
 -- Desktop Environment
 ('DESKTOP_ENV', '{{DESKTOP_ENV}}', 'Ambiente grafico: cinnamon, mate, gnome, xfce, kde, lxde (opcional, apenas se INSTALL_DESKTOP=true)', 'select', 'ambiente', FALSE, '', 90),
@@ -152,7 +153,7 @@ INSERT INTO variable_definitions (name, placeholder, description, type, category
 
 -- File Server
 ('SERVIDOR_ARQUIVOS', '{{SERVIDOR_ARQUIVOS}}', 'Servidor de arquivos (SMB/NFS)', 'ip', 'arquivos', FALSE, '10.108.64.20', 100),
-('COMPARTILHAMENTOS', '{{COMPARTILHAMENTOS}}', 'Lista de compartilhamentos (separados por virgula)', 'array', 'arquivos', FALSE, 'publico,usuarios,setores', 101),
+('COMPARTILHAMENTOS', '{{COMPARTILHAMENTOS}}', 'Lista de compartilhamentos (adicione um por vez)', 'tags', 'arquivos', FALSE, 'publico,usuarios,setores', 101),
 ('MOUNT_BASE', '{{MOUNT_BASE}}', 'Base de montagem para compartilhamentos', 'string', 'arquivos', FALSE, '/mnt/servidor', 102),
 
 -- Applications
