@@ -2421,12 +2421,12 @@ systemctl restart lightdm 2>/dev/null || {
     echo ">>> AVISO: LightDM sera iniciado no proximo boot."
 }
 
-echo ">>> [14a] LightDM configurado!"
+echo ">>> [16a] LightDM configurado!"
 echo "============================================================"
 ',
     true,  -- is_core
     true,  -- is_active
-    14,  -- execution_order
+    16,  -- execution_order
     1,     -- version
     NULL   -- organization_id (disponivel para todas as OMs)
 );
@@ -2576,12 +2576,12 @@ systemctl restart gdm3 2>/dev/null || {
     echo ">>> AVISO: GDM3 sera iniciado no proximo boot."
 }
 
-echo ">>> [14b] GDM3 configurado!"
+echo ">>> [16b] GDM3 configurado!"
 echo "============================================================"
 ',
     true,  -- is_core
     true,  -- is_active
-    15,  -- execution_order
+    16,  -- execution_order
     1,     -- version
     NULL   -- organization_id (disponivel para todas as OMs)
 );
@@ -2734,7 +2734,7 @@ systemctl restart sddm 2>/dev/null || {
     echo ">>> AVISO: SDDM sera iniciado no proximo boot."
 }
 
-echo ">>> [14c] SDDM configurado!"
+echo ">>> [16c] SDDM configurado!"
 echo "============================================================"
 ',
     true,  -- is_core
@@ -2744,33 +2744,37 @@ echo "============================================================"
     NULL   -- organization_id (disponivel para todas as OMs)
 );
 
--- 17 - Logon do Usuario (kixtart_v2)
+-- 14 - Logon do Usuario (multi-DE)
 INSERT INTO scripts (name, filename, description, content, is_core, is_active, execution_order, version, organization_id)
 VALUES (
-    'Logon do Usuario (kixtart_v2)',
+    'Logon do Usuario (multi-DE)',
     'core_logon.sh',
-    'Script executado no login do usuario: mapeamento de compartilhamentos, atalhos e personalizacoes.',
+    'Script executado no login do usuario: deteccao automatica de DE, mapeamento CIFS, politicas Firefox/Chrome, excecoes Java, atalhos e configuracoes DE-especificas.',
     '#!/bin/bash
 # ============================================================================
 # Core Script: core_logon.sh
-# SeederLinux Lite - kixtart_v2.sh (executado no login do usuario)
+# SeederLinux Lite - Logon multi-DE
 # ============================================================================
-# Script executado no momento do login do usuario. Realiza ajustes de
-# ambiente, mapeamento de compartilhamentos de rede, configuracao de
-# atalhos e personalizacoes por usuario.
-# Origem: kixtart_v2.sh do projeto SoftwareLivre.
-# Os placeholders {{VARIAVEL}} são substituídos automaticamente
-# pelo sistema na geração do bundle.
+# Script executado no momento do login do usuario. Cria o script permanente
+# /usr/local/bin/seederlinux-logon que sera chamado pelo display manager
+# (LightDM/GDM3/SDDM) a cada login, apos reboot.
+#
+# O script permanente detecta automaticamente o ambiente grafico e aplica
+# configuracoes especificas via case. Le as variaveis de
+# /etc/seederlinux/config.env (persistente).
+#
+# Os placeholders {{VARIAVEL}} sao substituidos automaticamente
+# pelo sistema na geracao do bundle.
 # ============================================================================
 
 set -e
 
 echo "============================================================"
-echo "15 - Logon do usuario (kixtart_v2)"
+echo "14 - Logon do usuario (multi-DE)"
 echo "============================================================"
 
 # ============================================================
-# Variáveis
+# Variaveis (substituidas no bundle)
 # ============================================================
 DOMINIO="{{DOMINIO}}"
 DOMINIO_NETBIOS="{{DOMINIO_NETBIOS}}"
@@ -2781,31 +2785,101 @@ HOMEPAGE="{{HOMEPAGE}}"
 OM_ACRONYM="{{OM_ACRONYM}}"
 DESKTOP_ENV="{{DESKTOP_ENV}}"
 DEFAULT_PRINTER="{{DEFAULT_PRINTER}}"
+PROXY_URL="{{PROXY_URL}}"
+PROXY_HTTP="{{PROXY_HTTP}}"
+PROXY_PORTA="{{PROXY_PORTA}}"
+NO_PROXY="{{NO_PROXY}}"
+THEME="{{THEME}}"
 
-# Obter usuario logado
+# ============================================================
+# Detectar ambiente grafico se nao definido
+# ============================================================
+if [ -z "$DESKTOP_ENV" ] || [ "$DESKTOP_ENV" = "" ]; then
+    if command -v cinnamon-session &>/dev/null; then DESKTOP_ENV="cinnamon"
+    elif command -v mate-session &>/dev/null; then DESKTOP_ENV="mate"
+    elif command -v gnome-session &>/dev/null; then DESKTOP_ENV="gnome"
+    elif command -v startxfce4 &>/dev/null; then DESKTOP_ENV="xfce"
+    elif command -v startplasma-x11 &>/dev/null; then DESKTOP_ENV="kde"
+    elif command -v startlxde &>/dev/null; then DESKTOP_ENV="lxde"
+    else DESKTOP_ENV="unknown"
+    fi
+    echo ">>> DE detectado automaticamente: $DESKTOP_ENV"
+fi
+
+# ============================================================
+# 1. Criar o script PERMANENTE em /usr/local/bin/seederlinux-logon
+#    Este script sera chamado pelo LightDM/GDM3/SDDM a cada login
+#    e le as variaveis de /etc/seederlinux/config.env
+# ============================================================
+echo ">>> Criando script permanente: /usr/local/bin/seederlinux-logon"
+
+cat > /usr/local/bin/seederlinux-logon <<''PERMSCRIPT''
+#!/bin/bash
+# seederlinux-logon - Script permanente de logon do SeederLinux (multi-DE)
+# Executado pelo display manager (LightDM/GDM3/SDDM) a cada login.
+# Le as variaveis de /etc/seederlinux/config.env (persistente).
+
+CONFIG_FILE="/etc/seederlinux/config.env"
+
+if [ -f "$CONFIG_FILE" ]; then
+    source "$CONFIG_FILE"
+else
+    echo ">>> [logon] AVISO: $CONFIG_FILE nao encontrado. Logon sem configuracao."
+    exit 0
+fi
+
 USERNAME="${USER:-$(whoami)}"
 USER_HOME="${HOME:-/home/$USERNAME}"
+LOG_DIR="/var/log/logon-logoff"
+LOG_FILE="$LOG_DIR/logon_${USERNAME}.log"
 
-echo ">>> Usuario: $USERNAME"
-echo ">>> Home: $USER_HOME"
+mkdir -p "$LOG_DIR"
+chmod 1777 "$LOG_DIR"
 
 # ============================================================
+# Funcoes de deteccao de ambiente
+# ============================================================
+detect_de() {
+    if command -v cinnamon-session &>/dev/null; then echo "cinnamon"
+    elif command -v mate-session &>/dev/null; then echo "mate"
+    elif command -v gnome-session &>/dev/null; then echo "gnome"
+    elif command -v startxfce4 &>/dev/null; then echo "xfce"
+    elif command -v startplasma-x11 &>/dev/null; then echo "kde"
+    elif command -v startlxde &>/dev/null; then echo "lxde"
+    else echo "unknown"
+    fi
+}
+
+detect_dm() {
+    if systemctl is-active --quiet lightdm 2>/dev/null; then echo "lightdm"
+    elif systemctl is-active --quiet gdm3 2>/dev/null; then echo "gdm3"
+    elif systemctl is-active --quiet sddm 2>/dev/null; then echo "sddm"
+    else echo "unknown"
+    fi
+}
+
+DESKTOP_ENV=$(detect_de)
+DISPLAY_MANAGER=$(detect_dm)
+
+exec >> "$LOG_FILE" 2>&1
+echo "=== Logon: $(date) - Usuario: $USERNAME - Ambiente: $DESKTOP_ENV - DM: $DISPLAY_MANAGER ==="
+
+# ============================================================
+# Configuracoes COMUNS (executam em qualquer DE)
+# ============================================================
+
 # Criar diretorios base do usuario
-# ============================================================
-echo ">>> Criando diretorios do usuario..."
-mkdir -p "$USER_HOME/Desktop"
-mkdir -p "$USER_HOME/Downloads"
-mkdir -p "$USER_HOME/Documents"
-mkdir -p "$USER_HOME/.config"
-mkdir -p "$USER_HOME/.local/share/applications"
+mkdir -p "$USER_HOME/Desktop" "$USER_HOME/Downloads" "$USER_HOME/Documents"
+mkdir -p "$USER_HOME/.config" "$USER_HOME/.local/share/applications"
+mkdir -p "$USER_HOME/.java/deployment/security"
+
+# Ajustar dono da home
+chown -R "$USERNAME:$(id -gn)" "$USER_HOME" 2>/dev/null || true
 
 # ============================================================
-# Mapear compartilhamentos de rede
+# Mapear compartilhamentos CIFS
 # ============================================================
-echo ">>> Mapeando compartilhamentos de rede..."
-
 if [ -n "$SERVIDOR_ARQUIVOS" ] && [ "$SERVIDOR_ARQUIVOS" != "" ]; then
-    # Criar diretorio base de montagem
     MOUNT_DIR="${MOUNT_BASE:-/mnt}"
     mkdir -p "$MOUNT_DIR"
 
@@ -2814,16 +2888,14 @@ if [ -n "$SERVIDOR_ARQUIVOS" ] && [ "$SERVIDOR_ARQUIVOS" != "" ]; then
             SHARE_MOUNT="${MOUNT_DIR}/${SHARE}"
             mkdir -p "$SHARE_MOUNT"
 
-            # Montar compartilhamento CIFS
             mountpoint -q "$SHARE_MOUNT" 2>/dev/null || {
                 mount -t cifs "//${SERVIDOR_ARQUIVOS}/${SHARE}" "$SHARE_MOUNT" \
                     -o "username=${USERNAME},domain=${DOMINIO_NETBIOS},uid=$(id -u),gid=$(id -g),iocharset=utf8,vers=3.0" 2>/dev/null || {
-                    echo ">>> AVISO: Falha ao montar //${SERVIDOR_ARQUIVOS}/${SHARE}"
+                    echo ">>> [logon] AVISO: Falha ao montar //${SERVIDOR_ARQUIVOS}/${SHARE}"
                 }
             }
-            echo ">>> Compartilhamento montado: ${SHARE} em ${SHARE_MOUNT}"
+            echo ">>> [logon] Compartilhamento montado: ${SHARE}"
 
-            # Criar atalho no desktop
             cat > "$USER_HOME/Desktop/${SHARE}.desktop" <<EOF
 [Desktop Entry]
 Type=Link
@@ -2833,30 +2905,19 @@ Icon=folder
 EOF
             chmod +x "$USER_HOME/Desktop/${SHARE}.desktop" 2>/dev/null || true
         done
-    else
-        echo ">>> Nenhum compartilhamento listado."
     fi
-else
-    echo ">>> SERVIDOR_ARQUIVOS nao definido. Pulando mapeamento."
 fi
 
 # ============================================================
 # Configurar impressora padrao
 # ============================================================
-echo ">>> Configurando impressora padrao..."
 if [ -n "$DEFAULT_PRINTER" ] && [ "$DEFAULT_PRINTER" != "" ]; then
-    lpoptions -d "$DEFAULT_PRINTER" 2>/dev/null || {
-        echo ">>> AVISO: Falha ao definir impressora padrao: $DEFAULT_PRINTER"
-    }
-    echo ">>> Impressora padrao: $DEFAULT_PRINTER"
+    lpoptions -d "$DEFAULT_PRINTER" 2>/dev/null || true
 fi
 
 # ============================================================
-# Criar atalhos no desktop
+# Criar atalho do portal no desktop
 # ============================================================
-echo ">>> Criando atalhos no desktop..."
-
-# Atalho para o portal/homepage
 if [ -n "$HOMEPAGE" ] && [ "$HOMEPAGE" != "" ]; then
     cat > "$USER_HOME/Desktop/Portal-${OM_ACRONYM}.desktop" <<EOF
 [Desktop Entry]
@@ -2866,85 +2927,294 @@ URL=${HOMEPAGE}
 Icon=firefox-esr
 EOF
     chmod +x "$USER_HOME/Desktop/Portal-${OM_ACRONYM}.desktop" 2>/dev/null || true
-    echo ">>> Atalho do portal criado"
 fi
 
 # ============================================================
-# Aplicar configuracoes de ambiente por DE
+# Criar atalhos de aplicativos no desktop
 # ============================================================
-echo ">>> Aplicando configuracoes de ambiente: $DESKTOP_ENV"
+# Chrome
+if command -v google-chrome &>/dev/null || command -v google-chrome-stable &>/dev/null; then
+    cat > "$USER_HOME/Desktop/Google-Chrome.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Google Chrome
+Exec=google-chrome-stable
+Icon=google-chrome
+Categories=Network;
+EOF
+    chmod +x "$USER_HOME/Desktop/Google-Chrome.desktop" 2>/dev/null || true
+fi
+
+# Firefox ESR
+if command -v firefox-esr &>/dev/null; then
+    cat > "$USER_HOME/Desktop/Firefox-ESR.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Firefox ESR
+Exec=firefox-esr
+Icon=firefox-esr
+Categories=Network;
+EOF
+    chmod +x "$USER_HOME/Desktop/Firefox-ESR.desktop" 2>/dev/null || true
+fi
+
+# OnlyOffice
+if command -v onlyoffice-desktopeditors &>/dev/null; then
+    cat > "$USER_HOME/Desktop/OnlyOffice.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=OnlyOffice
+Exec=onlyoffice-desktopeditors
+Icon=onlyoffice-desktopeditors
+Categories=Office;
+EOF
+    chmod +x "$USER_HOME/Desktop/OnlyOffice.desktop" 2>/dev/null || true
+fi
+
+# ============================================================
+# Configurar politicas do Firefox (user.js)
+# ============================================================
+FIREFOX_PROFILES=$(find "$USER_HOME/.mozilla/firefox" -maxdepth 1 -name "*.default*" -type d 2>/dev/null)
+for PROFILE in $FIREFOX_PROFILES; do
+    cat > "$PROFILE/user.js" <<EOF
+user_pref("browser.startup.homepage", "${HOMEPAGE}");
+user_pref("network.proxy.type", 2);
+user_pref("network.proxy.autoconfig_url", "${PAC_URL:-}");
+user_pref("network.proxy.http", "${PROXY_HTTP:-}");
+user_pref("network.proxy.http_port", ${PROXY_PORTA:-0});
+user_pref("network.proxy.no_proxies_on", "${NO_PROXY:-localhost,127.0.0.1}");
+user_pref("browser.cache.disk.enable", true);
+user_pref("browser.cache.disk.capacity", 51200);
+user_pref("app.update.enabled", false);
+EOF
+    chown "$USERNAME:$(id -gn)" "$PROFILE/user.js" 2>/dev/null || true
+done
+
+# ============================================================
+# Configurar politicas do Chrome/Chromium (master_preferences)
+# ============================================================
+CHROME_PREFS="/etc/opt/chrome/policies/managed/seederlinux.json"
+if [ -d "/etc/opt/chrome/policies/managed" ]; then
+    cat > "$CHROME_PREFS" <<EOF
+{
+    "HomepageLocation": "${HOMEPAGE}",
+    "HomepageIsNewTabPage": false,
+    "ProxyMode": "fixed_servers",
+    "ProxyServer": "${PROXY_HTTP}:${PROXY_PORTA}",
+    "ProxyBypassList": "${NO_PROXY:-localhost,127.0.0.1}",
+    "AutoSelectCertificateForUrls": ["*"],
+    "DefaultBrowserSettingEnabled": false
+}
+EOF
+fi
+
+CHROMIUM_PREFS="/etc/chromium/policies/managed/seederlinux.json"
+if [ -d "/etc/chromium/policies/managed" ]; then
+    cat > "$CHROMIUM_PREFS" <<EOF
+{
+    "HomepageLocation": "${HOMEPAGE}",
+    "HomepageIsNewTabPage": false,
+    "ProxyMode": "fixed_servers",
+    "ProxyServer": "${PROXY_HTTP}:${PROXY_PORTA}",
+    "ProxyBypassList": "${NO_PROXY:-localhost,127.0.0.1}",
+    "DefaultBrowserSettingEnabled": false
+}
+EOF
+fi
+
+# ============================================================
+# Configurar excecoes Java (exception.sites)
+# ============================================================
+JAVA_EXC="$USER_HOME/.java/deployment/security/exception.sites"
+cat > "$JAVA_EXC" <<EOF
+${HOMEPAGE}
+${BASE_URL:-}
+${OCS_SERVER:-}
+${GLPI_SERVER:-}
+EOF
+chown "$USERNAME:$(id -gn)" "$JAVA_EXC" 2>/dev/null || true
+
+# ============================================================
+# Corrigir permissoes de sudo/su/pkexec
+# ============================================================
+if [ -f /etc/sudoers ]; then
+    chmod 440 /etc/sudoers 2>/dev/null || true
+fi
+
+# ============================================================
+# Configuracoes ESPECIFICAS por DE
+# ============================================================
+WALLPAPER_PATH="/usr/share/backgrounds/seederlinux/wallpaper.jpg"
 
 case "$DESKTOP_ENV" in
-    cinnamon|mate)
-        # Garantir que o Conky inicie
-        if [ -x /usr/local/bin/seederlinux-conky ]; then
-            /usr/local/bin/seederlinux-conky &
-        fi
+    cinnamon)
+        gsettings set org.cinnamon.desktop.background picture-uri "file://$WALLPAPER_PATH" 2>/dev/null || true
+        gsettings set org.cinnamon.desktop.background picture-options ''zoom'' 2>/dev/null || true
+        gsettings set org.cinnamon.desktop.interface gtk-theme "${THEME:-Adwaita}" 2>/dev/null || true
+        gsettings set org.cinnamon.desktop.interface icon-theme ''Adwaita'' 2>/dev/null || true
+        gsettings set org.cinnamon.sounds event-sounds false 2>/dev/null || true
+        ;;
+    mate)
+        gsettings set org.mate.background picture-filename "$WALLPAPER_PATH" 2>/dev/null || true
+        gsettings set org.mate.background picture-options ''zoom'' 2>/dev/null || true
+        gsettings set org.mate.interface gtk-theme "${THEME:-Adwaita}" 2>/dev/null || true
+        gsettings set org.mate.interface icon-theme ''Adwaita'' 2>/dev/null || true
+        gsettings set org.mate.pluma style-scheme ''oblivion'' 2>/dev/null || true
+        gsettings set org.mate.sound event-sounds false 2>/dev/null || true
         ;;
     gnome)
-        # GNOME: desativar animacoes para desempenho
+        gsettings set org.gnome.desktop.background picture-uri "file://$WALLPAPER_PATH" 2>/dev/null || true
+        gsettings set org.gnome.desktop.background picture-options ''zoom'' 2>/dev/null || true
+        gsettings set org.gnome.desktop.interface gtk-theme "${THEME:-Adwaita}" 2>/dev/null || true
+        gsettings set org.gnome.desktop.interface icon-theme ''Adwaita'' 2>/dev/null || true
         gsettings set org.gnome.desktop.interface enable-animations false 2>/dev/null || true
         ;;
     xfce)
-        # XFCE: garantir painel padrao
+        xfconf-query -c xfce4-desktop -p /backdrop/screen0/monitor0/workspace0/last-image -s "$WALLPAPER_PATH" 2>/dev/null || true
+        xfconf-query -c xfce4-desktop -p /backdrop/screen0/monitor0/workspace0/image-style -s 5 2>/dev/null || true
+        xfconf-query -c xsettings -p /Net/ThemeName -s "${THEME:-Adwaita}" 2>/dev/null || true
+        xfconf-query -c xsettings -p /Net/IconThemeName -s ''Adwaita'' 2>/dev/null || true
         ;;
     kde)
-        # KDE: configurar atalhos
+        kwriteconfig5 --file plasma-org.kde.plasma.desktop-appletsrc \
+            --group ''Containments][1][Wallpaper][org.kde.image][General'' \
+            --key Image "file://$WALLPAPER_PATH" 2>/dev/null || true
+        kwriteconfig5 --file kdeglobals --group General --key ColorScheme "${THEME:-Adwaita}" 2>/dev/null || true
+        kwriteconfig5 --file kdeglobals --group KDE --key widgetStyle "${THEME:-Adwaita}" 2>/dev/null || true
+        if command -v conky &>/dev/null; then
+            killall conky 2>/dev/null || true
+            conky -c /etc/seederlinux/conky/conky.conf &
+        fi
         ;;
     lxde)
-        # LXDE: garantir configuracao do pcmanfm
+        mkdir -p "$USER_HOME/.config/pcmanfm/LXDE"
+        if [ -f "$USER_HOME/.config/pcmanfm/LXDE/pcmanfm.conf" ]; then
+            sed -i "s|wallpaper=.*|wallpaper=$WALLPAPER_PATH|" "$USER_HOME/.config/pcmanfm/LXDE/pcmanfm.conf" 2>/dev/null || true
+        fi
+        mkdir -p "$USER_HOME/.config/gtk-3.0"
+        cat > "$USER_HOME/.config/gtk-3.0/settings.ini" <<EOF
+[Settings]
+gtk-theme-name=${THEME:-Adwaita}
+EOF
         ;;
 esac
 
 # ============================================================
-# Corrigir permissoes do home
+# Iniciar Conky (Cinnamon e MATE)
 # ============================================================
-echo ">>> Corrigindo permissoes do home..."
+case "$DESKTOP_ENV" in
+    cinnamon|mate)
+        if [ -x /usr/local/bin/seederlinux-conky ]; then
+            /usr/local/bin/seederlinux-conky &
+        fi
+        ;;
+esac
+
+echo "=== Logon concluido: $(date) - ${OM_ACRONYM} ==="
+exit 0
+PERMSCRIPT
+
+chmod 755 /usr/local/bin/seederlinux-logon
+echo ">>> Script permanente criado: /usr/local/bin/seederlinux-logon"
+
+# ============================================================
+# 2. Executar logica de logon AGORA (durante o bundle)
+# ============================================================
+echo ">>> Executando logica de logon (bundle)..."
+
+USERNAME="${USER:-$(whoami)}"
+USER_HOME="${HOME:-/home/$USERNAME}"
+
+echo ">>> [logon] Usuario: $USERNAME"
+echo ">>> [logon] Home: $USER_HOME"
+
+mkdir -p "$USER_HOME/Desktop" "$USER_HOME/Downloads" "$USER_HOME/Documents"
+mkdir -p "$USER_HOME/.config" "$USER_HOME/.local/share/applications"
+
+if [ -n "$SERVIDOR_ARQUIVOS" ] && [ "$SERVIDOR_ARQUIVOS" != "" ]; then
+    MOUNT_DIR="${MOUNT_BASE:-/mnt}"
+    mkdir -p "$MOUNT_DIR"
+    if [ -n "$COMPARTILHAMENTOS" ] && [ "$COMPARTILHAMENTOS" != "" ]; then
+        for SHARE in $COMPARTILHAMENTOS; do
+            SHARE_MOUNT="${MOUNT_DIR}/${SHARE}"
+            mkdir -p "$SHARE_MOUNT"
+            mountpoint -q "$SHARE_MOUNT" 2>/dev/null || {
+                mount -t cifs "//${SERVIDOR_ARQUIVOS}/${SHARE}" "$SHARE_MOUNT" \
+                    -o "username=${USERNAME},domain=${DOMINIO_NETBIOS},uid=$(id -u),gid=$(id -g),iocharset=utf8,vers=3.0" 2>/dev/null || {
+                    echo ">>> [logon] AVISO: Falha ao montar //${SERVIDOR_ARQUIVOS}/${SHARE}"
+                }
+            }
+            echo ">>> [logon] Compartilhamento montado: ${SHARE}"
+            cat > "$USER_HOME/Desktop/${SHARE}.desktop" <<EOF
+[Desktop Entry]
+Type=Link
+Name=${SHARE}
+URL=file://${SHARE_MOUNT}
+Icon=folder
+EOF
+            chmod +x "$USER_HOME/Desktop/${SHARE}.desktop" 2>/dev/null || true
+        done
+    fi
+fi
+
+if [ -n "$DEFAULT_PRINTER" ] && [ "$DEFAULT_PRINTER" != "" ]; then
+    lpoptions -d "$DEFAULT_PRINTER" 2>/dev/null || true
+fi
+
+if [ -n "$HOMEPAGE" ] && [ "$HOMEPAGE" != "" ]; then
+    cat > "$USER_HOME/Desktop/Portal-${OM_ACRONYM}.desktop" <<EOF
+[Desktop Entry]
+Type=Link
+Name=Portal ${OM_ACRONYM}
+URL=${HOMEPAGE}
+Icon=firefox-esr
+EOF
+    chmod +x "$USER_HOME/Desktop/Portal-${OM_ACRONYM}.desktop" 2>/dev/null || true
+fi
+
 chown -R "$USERNAME:$(id -gn)" "$USER_HOME" 2>/dev/null || true
 
-# ============================================================
-# Mensagem de boas-vindas
-# ============================================================
-echo ">>> Bem-vindo ao ${OM_ACRONYM}!"
-echo ">>> Logon do usuario concluido."
-
-echo ">>> [15] Logon concluido!"
+echo ">>> [14] Logon concluido!"
 echo "============================================================"
 ',
     true,  -- is_core
     true,  -- is_active
-    17,  -- execution_order
+    14,  -- execution_order
     1,     -- version
     NULL   -- organization_id (disponivel para todas as OMs)
 );
 
--- 18 - Logoff do Usuario (kixtop_v2)
+-- 15 - Logoff do Usuario (multi-DE)
 INSERT INTO scripts (name, filename, description, content, is_core, is_active, execution_order, version, organization_id)
 VALUES (
-    'Logoff do Usuario (kixtop_v2)',
+    'Logoff do Usuario (multi-DE)',
     'core_logoff.sh',
-    'Script executado no logoff: limpeza de temporarios, desmontagem de compartilhamentos e remocao de atalhos.',
+    'Script executado no logoff: desmontagem CIFS, limpeza de cache/temp/lixeira, matar processos e rotacao de logs.',
     '#!/bin/bash
 # ============================================================================
 # Core Script: core_logoff.sh
-# SeederLinux Lite - kixtop_v2.sh (executado no logoff do usuario)
+# SeederLinux Lite - Logoff multi-DE
 # ============================================================================
-# Script executado no momento do logoff do usuario. Realiza limpeza de
-# arquivos temporarios, desmontagem de compartilhamentos e remocao de
-# atalhos temporarios.
-# Origem: kixtop_v2.sh do projeto SoftwareLivre.
-# Os placeholders {{VARIAVEL}} são substituídos automaticamente
-# pelo sistema na geração do bundle.
+# Script executado no momento do logoff do usuario. Cria o script permanente
+# /usr/local/bin/seederlinux-logoff que sera chamado pelo display manager
+# (LightDM/GDM3/SDDM) a cada logoff, apos reboot.
+#
+# O script permanente detecta automaticamente o ambiente grafico, desmonta
+# compartilhamentos CIFS, limpa cache e temporarios, e encerra processos.
+# Le as variaveis de /etc/seederlinux/config.env (persistente).
+#
+# Os placeholders {{VARIAVEL}} sao substituidos automaticamente
+# pelo sistema na geracao do bundle.
 # ============================================================================
 
 set -e
 
 echo "============================================================"
-echo "16 - Logoff do usuario (kixtop_v2)"
+echo "15 - Logoff do usuario (multi-DE)"
 echo "============================================================"
 
 # ============================================================
-# Variáveis
+# Variaveis (substituidas no bundle)
 # ============================================================
 DOMINIO="{{DOMINIO}}"
 DOMINIO_NETBIOS="{{DOMINIO_NETBIOS}}"
@@ -2953,104 +3223,177 @@ COMPARTILHAMENTOS="{{COMPARTILHAMENTOS}}"
 MOUNT_BASE="{{MOUNT_BASE}}"
 DESKTOP_ENV="{{DESKTOP_ENV}}"
 
-# Obter usuario logado
+# ============================================================
+# Detectar ambiente grafico se nao definido
+# ============================================================
+if [ -z "$DESKTOP_ENV" ] || [ "$DESKTOP_ENV" = "" ]; then
+    if command -v cinnamon-session &>/dev/null; then DESKTOP_ENV="cinnamon"
+    elif command -v mate-session &>/dev/null; then DESKTOP_ENV="mate"
+    elif command -v gnome-session &>/dev/null; then DESKTOP_ENV="gnome"
+    elif command -v startxfce4 &>/dev/null; then DESKTOP_ENV="xfce"
+    elif command -v startplasma-x11 &>/dev/null; then DESKTOP_ENV="kde"
+    elif command -v startlxde &>/dev/null; then DESKTOP_ENV="lxde"
+    else DESKTOP_ENV="unknown"
+    fi
+    echo ">>> DE detectado automaticamente: $DESKTOP_ENV"
+fi
+
+# ============================================================
+# 1. Criar o script PERMANENTE em /usr/local/bin/seederlinux-logoff
+# ============================================================
+echo ">>> Criando script permanente: /usr/local/bin/seederlinux-logoff"
+
+cat > /usr/local/bin/seederlinux-logoff <<''PERMSCRIPT''
+#!/bin/bash
+# seederlinux-logoff - Script permanente de logoff do SeederLinux (multi-DE)
+# Executado pelo display manager (LightDM/GDM3/SDDM) a cada logoff.
+# Le as variaveis de /etc/seederlinux/config.env (persistente).
+
+CONFIG_FILE="/etc/seederlinux/config.env"
+
+if [ -f "$CONFIG_FILE" ]; then
+    source "$CONFIG_FILE"
+else
+    echo ">>> [logoff] AVISO: $CONFIG_FILE nao encontrado. Logoff sem configuracao."
+    exit 0
+fi
+
 USERNAME="${USER:-$(whoami)}"
 USER_HOME="${HOME:-/home/$USERNAME}"
+LOG_DIR="/var/log/logon-logoff"
+LOG_FILE="$LOG_DIR/logoff_${USERNAME}.log"
 
-echo ">>> Usuario: $USERNAME"
-echo ">>> Home: $USER_HOME"
+mkdir -p "$LOG_DIR"
+
+exec >> "$LOG_FILE" 2>&1
+echo "=== Logoff: $(date) - Usuario: $USERNAME ==="
 
 # ============================================================
-# Desmontar compartilhamentos de rede
+# Funcoes de deteccao de ambiente
 # ============================================================
-echo ">>> Desmontando compartilhamentos de rede..."
+detect_de() {
+    if command -v cinnamon-session &>/dev/null; then echo "cinnamon"
+    elif command -v mate-session &>/dev/null; then echo "mate"
+    elif command -v gnome-session &>/dev/null; then echo "gnome"
+    elif command -v startxfce4 &>/dev/null; then echo "xfce"
+    elif command -v startplasma-x11 &>/dev/null; then echo "kde"
+    elif command -v startlxde &>/dev/null; then echo "lxde"
+    else echo "unknown"
+    fi
+}
 
+DESKTOP_ENV=$(detect_de)
+echo ">>> [logoff] Ambiente: $DESKTOP_ENV"
+
+# ============================================================
+# Desmontar compartilhamentos CIFS do usuario
+# ============================================================
 if [ -n "$COMPARTILHAMENTOS" ] && [ "$COMPARTILHAMENTOS" != "" ]; then
     MOUNT_DIR="${MOUNT_BASE:-/mnt}"
-
     for SHARE in $COMPARTILHAMENTOS; do
         SHARE_MOUNT="${MOUNT_DIR}/${SHARE}"
         if mountpoint -q "$SHARE_MOUNT" 2>/dev/null; then
             umount "$SHARE_MOUNT" 2>/dev/null || {
-                echo ">>> AVISO: Falha ao desmontar ${SHARE_MOUNT}"
-                # Forcar lazy unmount se necessario
+                echo ">>> [logoff] AVISO: Falha ao desmontar ${SHARE_MOUNT}"
                 umount -l "$SHARE_MOUNT" 2>/dev/null || true
             }
-            echo ">>> Compartilhamento desmontado: ${SHARE}"
+            echo ">>> [logoff] Compartilhamento desmontado: ${SHARE}"
         fi
     done
-else
-    echo ">>> Nenhum compartilhamento para desmontar."
 fi
 
 # ============================================================
-# Limpar arquivos temporarios do usuario
+# Limpar cache de navegadores
 # ============================================================
-echo ">>> Limpando arquivos temporarios..."
-
-# Cache do navegador
 rm -rf "$USER_HOME/.cache/mozilla" 2>/dev/null || true
 rm -rf "$USER_HOME/.cache/google-chrome" 2>/dev/null || true
 rm -rf "$USER_HOME/.cache/chromium" 2>/dev/null || true
 
-# Arquivos temporarios
+# ============================================================
+# Esvaziar lixeira
+# ============================================================
 rm -rf "$USER_HOME/.local/share/Trash"/* 2>/dev/null || true
-find /tmp -user "$USERNAME" -type f -mmin +60 -delete 2>/dev/null || true
 
-# Thumbnails
+# ============================================================
+# Remover temporarios do usuario
+# ============================================================
+find /tmp -user "$USERNAME" -type f -mmin +60 -delete 2>/dev/null || true
 rm -rf "$USER_HOME/.cache/thumbnails" 2>/dev/null || true
 
-echo ">>> Limpeza concluida"
-
 # ============================================================
-# Remover atalhos temporarios do desktop
+# Remover atalhos temporarios do desktop (compartilhamentos desmontados)
 # ============================================================
-echo ">>> Removendo atalhos temporarios..."
-
-# Remover atalhos de compartilhamentos
 if [ -n "$COMPARTILHAMENTOS" ] && [ "$COMPARTILHAMENTOS" != "" ]; then
     for SHARE in $COMPARTILHAMENTOS; do
         rm -f "$USER_HOME/Desktop/${SHARE}.desktop" 2>/dev/null || true
     done
 fi
 
-echo ">>> Atalhos temporarios removidos"
-
 # ============================================================
-# Salvar estado da sessao (logs)
+# Matar processos do usuario (conky, x11vnc)
 # ============================================================
-echo ">>> Salvando estado da sessao..."
-
-LOG_DIR="/var/log/seederlinux"
-mkdir -p "$LOG_DIR"
-
-LOG_FILE="${LOG_DIR}/session-${USERNAME}-$(date +%Y%m%d).log"
-echo "[$(date ''+%Y-%m-%d %H:%M:%S'')] Logoff do usuario $USERNAME" >> "$LOG_FILE"
-
-# Rotacionar logs antigos (manter 7 dias)
-find "$LOG_DIR" -name "session-*.log" -mtime +7 -delete 2>/dev/null || true
-
-echo ">>> Estado da sessao salvo"
-
-# ============================================================
-# Encerrar processos do usuario
-# ============================================================
-echo ">>> Encerrando processos do usuario..."
-
-# Matar processos Conky
 killall -u "$USERNAME" conky 2>/dev/null || true
-
-# Matar processos x11vnc
 killall -u "$USERNAME" x11vnc 2>/dev/null || true
 
-echo ">>> Processos encerrados"
+# ============================================================
+# Rotacionar logs (manter 7 dias)
+# ============================================================
+find "$LOG_DIR" -name "logoff_*.log" -mtime +7 -delete 2>/dev/null || true
+find "$LOG_DIR" -name "logon_*.log" -mtime +7 -delete 2>/dev/null || true
 
-echo ">>> [16] Logoff concluido!"
+echo "=== Logoff concluido: $(date) ==="
+exit 0
+PERMSCRIPT
+
+chmod 755 /usr/local/bin/seederlinux-logoff
+echo ">>> Script permanente criado: /usr/local/bin/seederlinux-logoff"
+
+# ============================================================
+# 2. Executar logica de logoff AGORA (durante o bundle)
+# ============================================================
+echo ">>> Executando logica de logoff (bundle)..."
+
+USERNAME="${USER:-$(whoami)}"
+USER_HOME="${HOME:-/home/$USERNAME}"
+
+echo ">>> [logoff] Usuario: $USERNAME"
+
+if [ -n "$COMPARTILHAMENTOS" ] && [ "$COMPARTILHAMENTOS" != "" ]; then
+    MOUNT_DIR="${MOUNT_BASE:-/mnt}"
+    for SHARE in $COMPARTILHAMENTOS; do
+        SHARE_MOUNT="${MOUNT_DIR}/${SHARE}"
+        if mountpoint -q "$SHARE_MOUNT" 2>/dev/null; then
+            umount "$SHARE_MOUNT" 2>/dev/null || {
+                echo ">>> [logoff] AVISO: Falha ao desmontar ${SHARE_MOUNT}"
+                umount -l "$SHARE_MOUNT" 2>/dev/null || true
+            }
+            echo ">>> [logoff] Compartilhamento desmontado: ${SHARE}"
+        fi
+    done
+fi
+
+rm -rf "$USER_HOME/.cache/mozilla" 2>/dev/null || true
+rm -rf "$USER_HOME/.cache/google-chrome" 2>/dev/null || true
+rm -rf "$USER_HOME/.cache/chromium" 2>/dev/null || true
+rm -rf "$USER_HOME/.local/share/Trash"/* 2>/dev/null || true
+find /tmp -user "$USERNAME" -type f -mmin +60 -delete 2>/dev/null || true
+rm -rf "$USER_HOME/.cache/thumbnails" 2>/dev/null || true
+
+if [ -n "$COMPARTILHAMENTOS" ] && [ "$COMPARTILHAMENTOS" != "" ]; then
+    for SHARE in $COMPARTILHAMENTOS; do
+        rm -f "$USER_HOME/Desktop/${SHARE}.desktop" 2>/dev/null || true
+    done
+fi
+
+killall -u "$USERNAME" conky 2>/dev/null || true
+killall -u "$USERNAME" x11vnc 2>/dev/null || true
+
+echo ">>> [15] Logoff concluido!"
 echo "============================================================"
 ',
     true,  -- is_core
     true,  -- is_active
-    18,  -- execution_order
+    15,  -- execution_order
     1,     -- version
     NULL   -- organization_id (disponivel para todas as OMs)
 );
@@ -3187,12 +3530,12 @@ EOF
 chmod 644 "$CONFIG_FILE"
 
 echo ">>> Configuracao persistente gravada em $CONFIG_FILE"
-echo ">>> [13.5] Arquivo de configuracao criado!"
+echo ">>> [13] Arquivo de configuracao criado!"
 echo "============================================================"
 ',
     true,  -- is_core
     true,  -- is_active
-    13.5,  -- execution_order
+    13,  -- execution_order (configuracao persistente, antes do logon)
     1,     -- version
     NULL   -- organization_id (disponivel para todas as OMs)
 );
@@ -3202,8 +3545,9 @@ COMMIT;
 -- ============================================================================
 -- Total de scripts Core inseridos: 19
 -- Ordem de execucao no bundle:
---   01-13: Scripts sequenciais (repositorios -> branding)
---   13.5: Configuracao persistente (core_config.sh)
---   14-16: Scripts de sessao (apenas UM conforme DISPLAY_MANAGER)
---   17-18: Logon e Logoff
+--   01-12: Scripts sequenciais (repositorios -> branding)
+--   13:   Configuracao persistente (core_config.sh)
+--   14:   Logon (core_logon.sh)
+--   15:   Logoff (core_logoff.sh)
+--   16:   Scripts de sessao (apenas UM conforme DISPLAY_MANAGER)
 -- ============================================================================

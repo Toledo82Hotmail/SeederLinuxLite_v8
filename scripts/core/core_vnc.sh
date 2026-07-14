@@ -70,11 +70,11 @@ if [ -n "$VNC_PASSWORD" ] && [ "$VNC_PASSWORD" != "" ]; then
     # NAO a senha em texto plano)
     echo "VNC_PASSWORD_SET=true" >> "$SECRETS_FILE"
 else
-    echo ">>> AVISO: VNC_PASSWORD nao definido. Gerando senha aleatoria."
+    echo ">>> VNC_PASSWORD nao definido. Gerando senha aleatoria."
     RANDOM_PASS=$(openssl rand -base64 12)
     x11vnc -storepasswd "$RANDOM_PASS" /etc/x11vnc/vncpasswd
     chmod 600 /etc/x11vnc/vncpasswd
-    echo ">>> Senha aleatoria gerada e armazenada em /etc/x11vnc/vncpasswd"
+    echo ">>> Senha VNC gerada com sucesso"
 
     echo "VNC_PASSWORD_SET=true" >> "$SECRETS_FILE"
 fi
