@@ -106,21 +106,38 @@ echo ">>> Samba configurado"
 # ============================================================
 # Ingressar no dominio
 # ============================================================
+echo "============================================================"
+echo ">>> INGRESSO NO DOMINIO - CREDENCIAIS NECESSARIAS"
+echo "============================================================"
+
+if [ -z "$ADMIN_USERNAME" ] || [ "$ADMIN_USERNAME" = "Administrator" ]; then
+    read -p ">>> Usuario administrador do dominio [Administrator]: " ADMIN_USER
+    ADMIN_USERNAME="${ADMIN_USER:-Administrator}"
+fi
+
+read -s -p ">>> Senha do administrador do dominio: " ADMIN_PASSWORD
+echo ""
 echo ">>> Ingressando no dominio..."
-# Obter ticket Kerberos (requer senha de admin do dominio)
-echo ">>> Solicitando ticket Kerberos..."
-kinit "${ADMIN_USERNAME}@${REALM}" || {
+
+# Usar as credenciais para kinit
+echo "$ADMIN_PASSWORD" | kinit "${ADMIN_USERNAME}@${REALM}" || {
     echo ">>> AVISO: Falha ao obter ticket Kerberos."
-    echo ">>> Verifique as credenciais e conectividade com o DC."
+    echo ">>> Verifique usuario/senha e conectividade com o DC."
     exit 1
 }
 
-# Ingressar com net ads join
-net ads join -U "${ADMIN_USERNAME}@${REALM}" \
-    createcomputer="${OU_PADRAO}" || {
+# Ingressar com realm join (método moderno para SSSD)
+echo "$ADMIN_PASSWORD" | realm join "$DOMINIO" \
+    --user="$ADMIN_USERNAME" \
+    --computer-ou="$OU_PADRAO" \
+    --membership-software=samba \
+    --automatic-id-mapping=yes \
+    --verbose || {
     echo ">>> ERRO: Falha ao ingressar no dominio"
     exit 1
 }
+
+unset ADMIN_PASSWORD
 echo ">>> Ingresso no dominio realizado"
 
 # ============================================================

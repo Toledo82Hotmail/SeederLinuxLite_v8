@@ -33,6 +33,21 @@ echo ">>> DNS secundario: ${DNS_SECUNDARIO}"
 echo ">>> NTP: $NTP_SERVER"
 
 # ============================================================
+# Hostname interativo
+# ============================================================
+CURRENT_HOSTNAME=$(hostname)
+echo ">>> Hostname atual: $CURRENT_HOSTNAME"
+read -p ">>> Deseja alterar o hostname? (s/N): " CHANGE_HOST
+if [[ "$CHANGE_HOST" =~ ^[Ss]$ ]]; then
+    read -p ">>> Novo hostname: " NEW_HOSTNAME
+    hostnamectl set-hostname "$NEW_HOSTNAME"
+    echo ">>> Hostname alterado para: $NEW_HOSTNAME"
+fi
+
+HOSTNAME_SHORT=$(hostname | cut -d. -f1)
+HOSTNAME_FQDN="${HOSTNAME_SHORT}.${DOMINIO}"
+
+# ============================================================
 # DNS temporário (para permitir apt-get durante o provisionamento)
 # ============================================================
 echo ">>> Configurando DNS temporario..."
@@ -50,8 +65,6 @@ echo ">>> DNS temporario configurado"
 # /etc/hosts - garantir resolucao do proprio host e do dominio
 # ============================================================
 echo ">>> Configurando /etc/hosts..."
-HOSTNAME_SHORT=$(hostname)
-HOSTNAME_FQDN="${HOSTNAME_SHORT}.${DOMINIO}"
 
 cp /etc/hosts /etc/hosts.bak.$(date +%Y%m%d%H%M%S) 2>/dev/null || true
 

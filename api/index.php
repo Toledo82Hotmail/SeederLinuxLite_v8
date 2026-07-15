@@ -105,7 +105,6 @@ try {
             handleGenerateBundle($input);
             break;
         case 'bundle-by-id':
-            requireAuth();
             handleDownloadBundle($id);
             break;
 
@@ -139,6 +138,11 @@ try {
         case 'audit':
             requireAuth();
             handleGetAuditEvents();
+            break;
+
+        // Public (no auth)
+        case 'public-bundles':
+            handlePublicBundles();
             break;
 
         // Uploads
@@ -1342,5 +1346,16 @@ function handleUploadAsset() {
 
     log_audit('UPLOAD', 'asset', null, ['organization_id' => $orgId, 'var_name' => $varName, 'filename' => $filename]);
     jsonSuccess(['url' => $url, 'thumbnail' => $thumbUrl, 'filename' => $filename, 'var_name' => $varName], 'Asset enviado');
+}
+
+function handlePublicBundles() {
+    $bundles = Database::fetchAll(
+        "SELECT db.id, db.filename, db.scripts_count, db.generated_at,
+                o.name as org_name, o.acronym
+         FROM deploy_bundles db
+         JOIN organizations o ON o.id = db.organization_id
+         ORDER BY db.generated_at DESC LIMIT 20"
+    );
+    jsonSuccess($bundles);
 }
 
