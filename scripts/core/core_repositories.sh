@@ -50,12 +50,16 @@ deb http://deb.debian.org/debian trixie-updates main contrib non-free non-free-f
 EOF
         ;;
     MIRROR)
-        echo ">>> Configurando repositorio espelho: $REPOSITORY_URL"
-        cat > /etc/apt/sources.list <<EOF
+        if [ -n "$REPOSITORY_URL" ] && [ "$REPOSITORY_URL" != "" ]; then
+            echo ">>> Configurando repositorio espelho: $REPOSITORY_URL"
+            cat > /etc/apt/sources.list <<EOF
 deb $REPOSITORY_URL trixie main contrib non-free non-free-firmware
 deb $REPOSITORY_URL trixie-security main contrib non-free non-free-firmware
 deb $REPOSITORY_URL trixie-updates main contrib non-free non-free-firmware
 EOF
+        else
+            echo ">>> Nenhum mirror definido. Mantendo sources.list padrao."
+        fi
         ;;
     HYBRID)
         echo ">>> Configurando repositorio hibrido (espelho + fallback)"

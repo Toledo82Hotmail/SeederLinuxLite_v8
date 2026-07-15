@@ -70,12 +70,16 @@ deb http://deb.debian.org/debian trixie-updates main contrib non-free non-free-f
 EOF
         ;;
     MIRROR)
-        echo ">>> Configurando repositorio espelho: $REPOSITORY_URL"
-        cat > /etc/apt/sources.list <<EOF
+        if [ -n "$REPOSITORY_URL" ] && [ "$REPOSITORY_URL" != "" ]; then
+            echo ">>> Configurando repositorio espelho: $REPOSITORY_URL"
+            cat > /etc/apt/sources.list <<EOF
 deb $REPOSITORY_URL trixie main contrib non-free non-free-firmware
 deb $REPOSITORY_URL trixie-security main contrib non-free non-free-firmware
 deb $REPOSITORY_URL trixie-updates main contrib non-free non-free-firmware
 EOF
+        else
+            echo ">>> Nenhum mirror definido. Mantendo sources.list padrao."
+        fi
         ;;
     HYBRID)
         echo ">>> Configurando repositorio hibrido (espelho + fallback)"
@@ -165,13 +169,12 @@ echo ">>> NTP: $NTP_SERVER"
 # DNS temporário (para permitir apt-get durante o provisionamento)
 # ============================================================
 echo ">>> Configurando DNS temporario..."
+echo "nameserver $DNS_PRIMARIO" > /etc/resolv.conf
+if [ -n "$DNS_SECUNDARIO" ] && [ "$DNS_SECUNDARIO" != "" ]; then
+    echo "nameserver $DNS_SECUNDARIO" >> /etc/resolv.conf
+fi
 if [ -n "$DNS_INTERNET" ] && [ "$DNS_INTERNET" != "" ]; then
-    echo "nameserver $DNS_INTERNET" > /etc/resolv.conf
-else
-    echo "nameserver $DNS_PRIMARIO" > /etc/resolv.conf
-    if [ -n "$DNS_SECUNDARIO" ] && [ "$DNS_SECUNDARIO" != "" ]; then
-        echo "nameserver $DNS_SECUNDARIO" >> /etc/resolv.conf
-    fi
+    echo "nameserver $DNS_INTERNET" >> /etc/resolv.conf
 fi
 echo "search $DOMINIO" >> /etc/resolv.conf
 echo ">>> DNS temporario configurado"
@@ -193,8 +196,9 @@ cat > /etc/hosts <<EOF
 EOF
 
 # Adiciona todos os DCs no /etc/hosts
+DC_HOSTNAME="dc-${OM_ACRONYM,,}"
 for DC in $DC_IP_LIST; do
-    echo "$DC    ${DOMINIO%%.*}.$DOMINIO" >> /etc/hosts
+    echo "$DC    ${DC_HOSTNAME}.${DOMINIO} ${DC_HOSTNAME}" >> /etc/hosts
 done
 
 echo ">>> /etc/hosts configurado"
@@ -340,12 +344,13 @@ apt-get install -y "${BASE_PACKAGES[@]}"
 echo ">>> Instalando pacotes de autenticacao..."
 AUTH_PACKAGES=(
     krb5-user
-    krb5-clients
     samba
     samba-common
     samba-common-bin
     sssd
     sssd-tools
+    sssd-krb5
+    sssd-krb5-common
     libnss-sss
     libpam-sss
     adcli
@@ -398,9 +403,7 @@ EXTRA_PACKAGES=(
     cups-client
     system-config-printer
     x11vnc
-    conky
-    firefox-esr
-    firefox-esr-l10n-pt-br
+    conky-all
     gimp
     vlc
     evince
@@ -412,8 +415,6 @@ EXTRA_PACKAGES=(
     pulseaudio
     pulseaudio-utils
     alsa-utils
-    firmware-linux
-    firmware-linux-nonfree
     intel-microcode
     amd64-microcode
     acpi
@@ -424,7 +425,15 @@ EXTRA_PACKAGES=(
     geoclue-2.0
 )
 
-apt-get install -y "${EXTRA_PACKAGES[@]}"
+apt-get install -y "${EXTRA_PACKAGES[@]}" || true
+
+# Firefox ESR com fallback para firefox
+apt-get install -y firefox-esr firefox-esr-l10n-pt-br 2>/dev/null || \
+    apt-get install -y firefox firefox-l10n-pt-br 2>/dev/null || true
+
+# Firmware opcional (varia por distro)
+apt-get install -y firmware-linux 2>/dev/null || true
+apt-get install -y firmware-linux-nonfree 2>/dev/null || true
 
 # ============================================================
 # Limpar cache do APT
@@ -500,9 +509,10 @@ fi
 # Configurar Kerberos
 # ============================================================
 echo ">>> Configurando Kerberos..."
+REALM="${DOMINIO^^}"
 cat > /etc/krb5.conf <<EOF
 [libdefaults]
-    default_realm = ${DOMINIO_NETBIOS}
+    default_realm = ${REALM}
     dns_lookup_realm = false
     dns_lookup_kdc = true
     rdns = false
@@ -511,14 +521,14 @@ cat > /etc/krb5.conf <<EOF
     renew_lifetime = 7d
 
 [realms]
-    ${DOMINIO_NETBIOS} = {
+    ${REALM} = {
         kdc = ${DC_IP}
         admin_server = ${DC_IP}
     }
 
 [domain_realm]
-    .${DOMINIO} = ${DOMINIO_NETBIOS}
-    ${DOMINIO} = ${DOMINIO_NETBIOS}
+    .${DOMINIO} = ${REALM}
+    ${DOMINIO} = ${REALM}
 EOF
 
 echo ">>> Kerberos configurado"
@@ -558,14 +568,14 @@ echo ">>> Samba configurado"
 echo ">>> Ingressando no dominio..."
 # Obter ticket Kerberos (requer senha de admin do dominio)
 echo ">>> Solicitando ticket Kerberos..."
-kinit "${ADMIN_USERNAME}@${DOMINIO_NETBIOS}" || {
+kinit "${ADMIN_USERNAME}@${REALM}" || {
     echo ">>> AVISO: Falha ao obter ticket Kerberos."
     echo ">>> Verifique as credenciais e conectividade com o DC."
     exit 1
 }
 
 # Ingressar com net ads join
-net ads join -U "${ADMIN_USERNAME}@${DOMINIO_NETBIOS}" \
+net ads join -U "${ADMIN_USERNAME}@${REALM}" \
     createcomputer="${OU_PADRAO}" || {
     echo ">>> ERRO: Falha ao ingressar no dominio"
     exit 1

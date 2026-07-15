@@ -116,12 +116,13 @@ apt-get install -y "${BASE_PACKAGES[@]}"
 echo ">>> Instalando pacotes de autenticacao..."
 AUTH_PACKAGES=(
     krb5-user
-    krb5-clients
     samba
     samba-common
     samba-common-bin
     sssd
     sssd-tools
+    sssd-krb5
+    sssd-krb5-common
     libnss-sss
     libpam-sss
     adcli
@@ -181,9 +182,7 @@ EXTRA_PACKAGES=(
     cups-client
     system-config-printer
     x11vnc
-    conky
-    firefox-esr
-    firefox-esr-l10n-pt-br
+    conky-all
     gimp
     vlc
     evince
@@ -195,8 +194,6 @@ EXTRA_PACKAGES=(
     pulseaudio
     pulseaudio-utils
     alsa-utils
-    firmware-linux
-    firmware-linux-nonfree
     intel-microcode
     amd64-microcode
     acpi
@@ -207,7 +204,15 @@ EXTRA_PACKAGES=(
     geoclue-2.0
 )
 
-apt-get install -y "${EXTRA_PACKAGES[@]}"
+apt-get install -y "${EXTRA_PACKAGES[@]}" || true
+
+# Firefox ESR com fallback para firefox
+apt-get install -y firefox-esr firefox-esr-l10n-pt-br 2>/dev/null || \
+    apt-get install -y firefox firefox-l10n-pt-br 2>/dev/null || true
+
+# Firmware opcional (varia por distro)
+apt-get install -y firmware-linux 2>/dev/null || true
+apt-get install -y firmware-linux-nonfree 2>/dev/null || true
 
 # ============================================================
 # Limpar cache do APT

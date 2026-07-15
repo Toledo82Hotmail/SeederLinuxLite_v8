@@ -49,9 +49,11 @@ fi
 # Configurar Kerberos
 # ============================================================
 echo ">>> Configurando Kerberos..."
+REALM="${DOMINIO^^}"
+
 cat > /etc/krb5.conf <<EOF
 [libdefaults]
-    default_realm = ${DOMINIO_NETBIOS}
+    default_realm = ${REALM}
     dns_lookup_realm = false
     dns_lookup_kdc = true
     rdns = false
@@ -60,14 +62,14 @@ cat > /etc/krb5.conf <<EOF
     renew_lifetime = 7d
 
 [realms]
-    ${DOMINIO_NETBIOS} = {
+    ${REALM} = {
         kdc = ${DC_IP}
         admin_server = ${DC_IP}
     }
 
 [domain_realm]
-    .${DOMINIO} = ${DOMINIO_NETBIOS}
-    ${DOMINIO} = ${DOMINIO_NETBIOS}
+    .${DOMINIO} = ${REALM}
+    ${DOMINIO} = ${REALM}
 EOF
 
 echo ">>> Kerberos configurado"
@@ -107,14 +109,14 @@ echo ">>> Samba configurado"
 echo ">>> Ingressando no dominio..."
 # Obter ticket Kerberos (requer senha de admin do dominio)
 echo ">>> Solicitando ticket Kerberos..."
-kinit "${ADMIN_USERNAME}@${DOMINIO_NETBIOS}" || {
+kinit "${ADMIN_USERNAME}@${REALM}" || {
     echo ">>> AVISO: Falha ao obter ticket Kerberos."
     echo ">>> Verifique as credenciais e conectividade com o DC."
     exit 1
 }
 
 # Ingressar com net ads join
-net ads join -U "${ADMIN_USERNAME}@${DOMINIO_NETBIOS}" \
+net ads join -U "${ADMIN_USERNAME}@${REALM}" \
     createcomputer="${OU_PADRAO}" || {
     echo ">>> ERRO: Falha ao ingressar no dominio"
     exit 1

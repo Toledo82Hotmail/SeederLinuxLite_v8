@@ -36,13 +36,12 @@ echo ">>> NTP: $NTP_SERVER"
 # DNS temporário (para permitir apt-get durante o provisionamento)
 # ============================================================
 echo ">>> Configurando DNS temporario..."
+echo "nameserver $DNS_PRIMARIO" > /etc/resolv.conf
+if [ -n "$DNS_SECUNDARIO" ] && [ "$DNS_SECUNDARIO" != "" ]; then
+    echo "nameserver $DNS_SECUNDARIO" >> /etc/resolv.conf
+fi
 if [ -n "$DNS_INTERNET" ] && [ "$DNS_INTERNET" != "" ]; then
-    echo "nameserver $DNS_INTERNET" > /etc/resolv.conf
-else
-    echo "nameserver $DNS_PRIMARIO" > /etc/resolv.conf
-    if [ -n "$DNS_SECUNDARIO" ] && [ "$DNS_SECUNDARIO" != "" ]; then
-        echo "nameserver $DNS_SECUNDARIO" >> /etc/resolv.conf
-    fi
+    echo "nameserver $DNS_INTERNET" >> /etc/resolv.conf
 fi
 echo "search $DOMINIO" >> /etc/resolv.conf
 echo ">>> DNS temporario configurado"
@@ -64,8 +63,9 @@ cat > /etc/hosts <<EOF
 EOF
 
 # Adiciona todos os DCs no /etc/hosts
+DC_HOSTNAME="dc-${OM_ACRONYM,,}"
 for DC in $DC_IP_LIST; do
-    echo "$DC    ${DOMINIO%%.*}.$DOMINIO" >> /etc/hosts
+    echo "$DC    ${DC_HOSTNAME}.${DOMINIO} ${DC_HOSTNAME}" >> /etc/hosts
 done
 
 echo ">>> /etc/hosts configurado"

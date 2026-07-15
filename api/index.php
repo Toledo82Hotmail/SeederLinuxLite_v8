@@ -763,6 +763,12 @@ function handleGenerateBundle($input) {
     $bundle .= "# Scripts: " . count($scripts) . "\n";
     $bundle .= "# ============================================\n\n";
 
+    $bundle .= "# Verificar root\n";
+    $bundle .= "if [ \"\$(id -u)\" -ne 0 ]; then\n";
+    $bundle .= "    echo \"ERRO: Este script deve ser executado como root (sudo).\"\n";
+    $bundle .= "    exit 1\n";
+    $bundle .= "fi\n\n";
+
     $skipExportTypes = ['password'];
     $skipExportNames = ['ADMIN_USERNAME', 'INSTALL_DESKTOP'];
     $bundle .= "# === VARIAVEIS ===\n";
