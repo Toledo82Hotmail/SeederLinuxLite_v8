@@ -591,23 +591,59 @@ read -s -p ">>> Senha do administrador do dominio: " ADMIN_PASSWORD
 echo ""
 echo ">>> Ingressando no dominio..."
 
-# Usar as credenciais para kinit
-echo "$ADMIN_PASSWORD" | kinit "${ADMIN_USERNAME}@${REALM}" || {
-    echo ">>> AVISO: Falha ao obter ticket Kerberos."
+# Obter ticket Kerberos - tentar múltiplas combinações
+echo ">>> Obtendo ticket Kerberos..."
+KINIT_OK=false
+
+# Tentativa 1: REALM maiúsculo (Administrator@COMARA.INTRAER)
+echo "$ADMIN_PASSWORD" | kinit "${ADMIN_USERNAME}@${DOMINIO^^}" 2>/dev/null && KINIT_OK=true
+
+# Tentativa 2: NETBIOS (Administrator@COMARA)
+[ "$KINIT_OK" != "true" ] && echo "$ADMIN_PASSWORD" | kinit "${ADMIN_USERNAME}@${DOMINIO_NETBIOS}" 2>/dev/null && KINIT_OK=true
+
+# Tentativa 3: Domínio minúsculo (administrator@comara.intraer)
+[ "$KINIT_OK" != "true" ] && echo "$ADMIN_PASSWORD" | kinit "${ADMIN_USERNAME,,}@${DOMINIO,,}" 2>/dev/null && KINIT_OK=true
+
+# Tentativa 4: Usuário minúsculo, REALM maiúsculo (administrator@COMARA.INTRAER)
+[ "$KINIT_OK" != "true" ] && echo "$ADMIN_PASSWORD" | kinit "${ADMIN_USERNAME,,}@${DOMINIO^^}" 2>/dev/null && KINIT_OK=true
+
+if [ "$KINIT_OK" != "true" ]; then
+    echo ">>> ERRO: Falha ao obter ticket Kerberos com todas as combinações."
     echo ">>> Verifique usuario/senha e conectividade com o DC."
     exit 1
-}
+fi
+echo ">>> Ticket Kerberos obtido com sucesso!"
 
 # Ingressar com realm join (método moderno para SSSD)
+echo ">>> Ingressando no dominio via realm join..."
 echo "$ADMIN_PASSWORD" | realm join "$DOMINIO" \
     --user="$ADMIN_USERNAME" \
     --computer-ou="$OU_PADRAO" \
-    --membership-software=samba \
-    --automatic-id-mapping=yes \
     --verbose || {
-    echo ">>> ERRO: Falha ao ingressar no dominio"
+    echo ">>> ERRO: realm join falhou."
     exit 1
 }
+
+# Verificar se o keytab foi gerado
+if [ ! -f /etc/krb5.keytab ]; then
+    echo ">>> Keytab não encontrado. Tentando gerar com adcli..."
+    echo "$ADMIN_PASSWORD" | adcli join "$DOMINIO" \
+        --login-user="$ADMIN_USERNAME" \
+        --domain-ou="$OU_PADRAO" \
+        --verbose || {
+        echo ">>> ERRO: adcli join também falhou."
+        exit 1
+    }
+fi
+
+# Verificar keytab
+if [ -f /etc/krb5.keytab ]; then
+    echo ">>> Keytab gerado com sucesso."
+    chmod 600 /etc/krb5.keytab
+else
+    echo ">>> ERRO: Keytab não foi gerado após múltiplas tentativas."
+    exit 1
+fi
 
 unset ADMIN_PASSWORD
 echo ">>> Ingresso no dominio realizado"
