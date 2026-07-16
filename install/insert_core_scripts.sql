@@ -17,16 +17,20 @@ INSERT INTO scripts (name, filename, description, content, is_core, is_active, e
 VALUES (
     'Configurar Repositorios APT',
     'core_repositories.sh',
-    'Detecta a distribuicao (Debian, Ubuntu, Mint, Zorin) e configura os repositorios APT conforme o modo: PUBLIC, MIRROR, HYBRID ou CUSTOM.',
+    'Detecta a distribuicao (Debian, Ubuntu, Mint, Zorin) e configura os repositorios APT com mirrors independentes por distro.',
     '#!/bin/bash
 # ============================================================================
 # Core Script: core_repositories.sh
 # SeederLinux Lite - Configurar sources.list (APT)
 # ============================================================================
 # Detecta a distribuicao (Debian, Ubuntu, Mint, Zorin) e configura os
-# repositorios APT conforme o modo: PUBLIC (padrao da distro), MIRROR
-# (espelho local), HYBRID (espelho + fallback) ou CUSTOM (URL personalizada).
-# NUNCA altera sources.list se o modo for PUBLIC ou se nao houver mirror.
+# repositorios APT conforme o modo e as variaveis por distro:
+#   REPOSITORY_DEBIAN_ENABLED / REPOSITORY_DEBIAN_URL
+#   REPOSITORY_UBUNTU_ENABLED / REPOSITORY_UBUNTU_URL
+#   REPOSITORY_MINT_ENABLED   / REPOSITORY_MINT_URL
+#   REPOSITORY_ZORIN_ENABLED  / REPOSITORY_ZORIN_URL
+# NUNCA altera sources.list se o modo for PUBLIC ou se o mirror da distro
+# detectada nao estiver habilitado.
 # Os placeholders {{VARIAVEL}} sao substituidos automaticamente
 # pelo sistema na geracao do bundle.
 # ============================================================================
@@ -38,11 +42,21 @@ echo "01 - Configurar repositorios APT"
 echo "============================================================"
 
 # ============================================================
-# Variaveis
+# Variaveis globais
 # ============================================================
 REPOSITORY_MODE="{{REPOSITORY_MODE}}"
 REPOSITORY_URL="{{REPOSITORY_URL}}"
 REPOSITORY_FALLBACK="{{REPOSITORY_FALLBACK}}"
+
+# Variaveis por distro
+REPOSITORY_DEBIAN_ENABLED="{{REPOSITORY_DEBIAN_ENABLED}}"
+REPOSITORY_DEBIAN_URL="{{REPOSITORY_DEBIAN_URL}}"
+REPOSITORY_UBUNTU_ENABLED="{{REPOSITORY_UBUNTU_ENABLED}}"
+REPOSITORY_UBUNTU_URL="{{REPOSITORY_UBUNTU_URL}}"
+REPOSITORY_MINT_ENABLED="{{REPOSITORY_MINT_ENABLED}}"
+REPOSITORY_MINT_URL="{{REPOSITORY_MINT_URL}}"
+REPOSITORY_ZORIN_ENABLED="{{REPOSITORY_ZORIN_ENABLED}}"
+REPOSITORY_ZORIN_URL="{{REPOSITORY_ZORIN_URL}}"
 
 echo ">>> Modo de repositorio: $REPOSITORY_MODE"
 
@@ -67,7 +81,7 @@ DISTRO=$(detect_distro)
 echo ">>> Distribuicao detectada: $DISTRO"
 
 # ============================================================
-# Backup do sources.list original (antes de qualquer alteracao)
+# Backup do sources.list original
 # ============================================================
 backup_sources() {
     if [ -f /etc/apt/sources.list ]; then
@@ -92,113 +106,122 @@ case "$REPOSITORY_MODE" in
         echo ">>> Nenhuma alteracao em sources.list foi feita."
         ;;
 
-    MIRROR)
-        if [ -z "$REPOSITORY_URL" ] || [ "$REPOSITORY_URL" = "" ]; then
-            echo ">>> Nenhum mirror definido. Mantendo sources.list padrao."
-            exit 0
-        fi
-
-        echo ">>> Configurando repositorio espelho: $REPOSITORY_URL"
-        backup_sources
-
+    MIRROR|HYBRID)
         case "$DISTRO" in
             debian)
-                DEBIAN_CODENAME=$(get_codename trixie)
-                cat > /etc/apt/sources.list <<EOF
-deb $REPOSITORY_URL/debian $DEBIAN_CODENAME main contrib non-free non-free-firmware
-deb $REPOSITORY_URL/debian-security $DEBIAN_CODENAME-security main contrib non-free non-free-firmware
-deb $REPOSITORY_URL/debian $DEBIAN_CODENAME-updates main contrib non-free non-free-firmware
+                if [ "${REPOSITORY_DEBIAN_ENABLED:-false}" = "true" ] && [ -n "${REPOSITORY_DEBIAN_URL:-}" ]; then
+                    echo ">>> Configurando mirror Debian: $REPOSITORY_DEBIAN_URL"
+                    backup_sources
+                    DEBIAN_CODENAME=$(get_codename trixie)
+                    cat > /etc/apt/sources.list <<EOF
+deb $REPOSITORY_DEBIAN_URL/debian $DEBIAN_CODENAME main contrib non-free non-free-firmware
+deb $REPOSITORY_DEBIAN_URL/debian-security $DEBIAN_CODENAME-security main contrib non-free non-free-firmware
+deb $REPOSITORY_DEBIAN_URL/debian $DEBIAN_CODENAME-updates main contrib non-free non-free-firmware
 EOF
-                ;;
-            ubuntu)
-                UBUNTU_CODENAME=$(get_codename noble)
-                cat > /etc/apt/sources.list <<EOF
-deb $REPOSITORY_URL/ubuntu $UBUNTU_CODENAME main restricted universe multiverse
-deb $REPOSITORY_URL/ubuntu $UBUNTU_CODENAME-updates main restricted universe multiverse
-deb $REPOSITORY_URL/ubuntu $UBUNTU_CODENAME-security main restricted universe multiverse
-EOF
-                ;;
-            mint)
-                MINT_CODENAME=$(get_codename wilma)
-                UBUNTU_CODENAME=$(grep UBUNTU_CODENAME /etc/linuxmint/info 2>/dev/null | cut -d= -f2 || echo noble)
-                cat > /etc/apt/sources.list <<EOF
-deb $REPOSITORY_URL/mint $MINT_CODENAME main upstream import backport
-deb $REPOSITORY_URL/ubuntu $UBUNTU_CODENAME main restricted universe multiverse
-deb $REPOSITORY_URL/ubuntu $UBUNTU_CODENAME-updates main restricted universe multiverse
-deb $REPOSITORY_URL/ubuntu $UBUNTU_CODENAME-security main restricted universe multiverse
-EOF
-                ;;
-            zorin)
-                UBUNTU_CODENAME=$(get_codename jammy)
-                cat > /etc/apt/sources.list <<EOF
-deb $REPOSITORY_URL/ubuntu $UBUNTU_CODENAME main restricted universe multiverse
-deb $REPOSITORY_URL/ubuntu $UBUNTU_CODENAME-updates main restricted universe multiverse
-deb $REPOSITORY_URL/ubuntu $UBUNTU_CODENAME-security main restricted universe multiverse
-EOF
-                ;;
-            *)
-                echo ">>> Distribuicao nao reconhecida. Mantendo sources.list padrao."
-                ;;
-        esac
-        ;;
-
-    HYBRID)
-        if [ -z "$REPOSITORY_URL" ] || [ "$REPOSITORY_URL" = "" ]; then
-            echo ">>> Nenhum mirror definido para modo HYBRID. Mantendo sources.list padrao."
-            exit 0
-        fi
-
-        echo ">>> Configurando repositorio hibrido (espelho + fallback)"
-        backup_sources
-
-        case "$DISTRO" in
-            debian)
-                DEBIAN_CODENAME=$(get_codename trixie)
-                cat > /etc/apt/sources.list <<EOF
-deb $REPOSITORY_URL/debian $DEBIAN_CODENAME main contrib non-free non-free-firmware
-deb $REPOSITORY_URL/debian-security $DEBIAN_CODENAME-security main contrib non-free non-free-firmware
-deb $REPOSITORY_URL/debian $DEBIAN_CODENAME-updates main contrib non-free non-free-firmware
+                    if [ "$REPOSITORY_MODE" = "HYBRID" ] && [ -n "$REPOSITORY_FALLBACK" ]; then
+                        echo ">>> Adicionando fallback Debian..."
+                        cat >> /etc/apt/sources.list <<EOF
 deb $REPOSITORY_FALLBACK/debian $DEBIAN_CODENAME main contrib non-free non-free-firmware
 deb $REPOSITORY_FALLBACK/debian-security $DEBIAN_CODENAME-security main contrib non-free non-free-firmware
 deb $REPOSITORY_FALLBACK/debian $DEBIAN_CODENAME-updates main contrib non-free non-free-firmware
 EOF
+                    fi
+                else
+                    echo ">>> Mirror Debian nao habilitado. Mantendo repositorios oficiais."
+                fi
                 ;;
+
             ubuntu)
-                UBUNTU_CODENAME=$(get_codename noble)
-                cat > /etc/apt/sources.list <<EOF
-deb $REPOSITORY_URL/ubuntu $UBUNTU_CODENAME main restricted universe multiverse
-deb $REPOSITORY_URL/ubuntu $UBUNTU_CODENAME-updates main restricted universe multiverse
-deb $REPOSITORY_URL/ubuntu $UBUNTU_CODENAME-security main restricted universe multiverse
+                if [ "${REPOSITORY_UBUNTU_ENABLED:-false}" = "true" ] && [ -n "${REPOSITORY_UBUNTU_URL:-}" ]; then
+                    echo ">>> Configurando mirror Ubuntu: $REPOSITORY_UBUNTU_URL"
+                    backup_sources
+                    UBUNTU_CODENAME=$(get_codename noble)
+                    cat > /etc/apt/sources.list <<EOF
+deb $REPOSITORY_UBUNTU_URL/ubuntu $UBUNTU_CODENAME main restricted universe multiverse
+deb $REPOSITORY_UBUNTU_URL/ubuntu $UBUNTU_CODENAME-updates main restricted universe multiverse
+deb $REPOSITORY_UBUNTU_URL/ubuntu $UBUNTU_CODENAME-security main restricted universe multiverse
+EOF
+                    if [ "$REPOSITORY_MODE" = "HYBRID" ] && [ -n "$REPOSITORY_FALLBACK" ]; then
+                        echo ">>> Adicionando fallback Ubuntu..."
+                        cat >> /etc/apt/sources.list <<EOF
 deb $REPOSITORY_FALLBACK/ubuntu $UBUNTU_CODENAME main restricted universe multiverse
 deb $REPOSITORY_FALLBACK/ubuntu $UBUNTU_CODENAME-updates main restricted universe multiverse
 deb $REPOSITORY_FALLBACK/ubuntu $UBUNTU_CODENAME-security main restricted universe multiverse
 EOF
+                    fi
+                else
+                    echo ">>> Mirror Ubuntu nao habilitado. Mantendo repositorios oficiais."
+                fi
                 ;;
+
             mint)
                 MINT_CODENAME=$(get_codename wilma)
                 UBUNTU_CODENAME=$(grep UBUNTU_CODENAME /etc/linuxmint/info 2>/dev/null | cut -d= -f2 || echo noble)
-                cat > /etc/apt/sources.list <<EOF
-deb $REPOSITORY_URL/mint $MINT_CODENAME main upstream import backport
-deb $REPOSITORY_URL/ubuntu $UBUNTU_CODENAME main restricted universe multiverse
-deb $REPOSITORY_URL/ubuntu $UBUNTU_CODENAME-updates main restricted universe multiverse
-deb $REPOSITORY_URL/ubuntu $UBUNTU_CODENAME-security main restricted universe multiverse
+                MINT_OK=false
+
+                if [ "${REPOSITORY_MINT_ENABLED:-false}" = "true" ] && [ -n "${REPOSITORY_MINT_URL:-}" ]; then
+                    MINT_OK=true
+                fi
+
+                if [ "$MINT_OK" = "true" ]; then
+                    echo ">>> Configurando mirror Mint: $REPOSITORY_MINT_URL"
+                    backup_sources
+                    cat > /etc/apt/sources.list <<EOF
+deb $REPOSITORY_MINT_URL/mint $MINT_CODENAME main upstream import backport
+EOF
+                    if [ "${REPOSITORY_UBUNTU_ENABLED:-false}" = "true" ] && [ -n "${REPOSITORY_UBUNTU_URL:-}" ]; then
+                        echo ">>> Configurando mirror Ubuntu base para Mint: $REPOSITORY_UBUNTU_URL"
+                        cat >> /etc/apt/sources.list <<EOF
+deb $REPOSITORY_UBUNTU_URL/ubuntu $UBUNTU_CODENAME main restricted universe multiverse
+deb $REPOSITORY_UBUNTU_URL/ubuntu $UBUNTU_CODENAME-updates main restricted universe multiverse
+deb $REPOSITORY_UBUNTU_URL/ubuntu $UBUNTU_CODENAME-security main restricted universe multiverse
+EOF
+                    else
+                        echo ">>> Mirror Ubuntu nao habilitado. Mantendo repositorios oficiais do Ubuntu base."
+                        cat >> /etc/apt/sources.list <<EOF
+deb http://archive.ubuntu.com/ubuntu $UBUNTU_CODENAME main restricted universe multiverse
+deb http://archive.ubuntu.com/ubuntu $UBUNTU_CODENAME-updates main restricted universe multiverse
+deb http://archive.ubuntu.com/ubuntu $UBUNTU_CODENAME-security main restricted universe multiverse
+EOF
+                    fi
+
+                    if [ "$REPOSITORY_MODE" = "HYBRID" ] && [ -n "$REPOSITORY_FALLBACK" ]; then
+                        echo ">>> Adicionando fallback..."
+                        cat >> /etc/apt/sources.list <<EOF
 deb $REPOSITORY_FALLBACK/mint $MINT_CODENAME main upstream import backport
 deb $REPOSITORY_FALLBACK/ubuntu $UBUNTU_CODENAME main restricted universe multiverse
 deb $REPOSITORY_FALLBACK/ubuntu $UBUNTU_CODENAME-updates main restricted universe multiverse
 deb $REPOSITORY_FALLBACK/ubuntu $UBUNTU_CODENAME-security main restricted universe multiverse
 EOF
+                    fi
+                else
+                    echo ">>> Mirror Mint nao habilitado. Mantendo repositorios oficiais."
+                fi
                 ;;
+
             zorin)
-                UBUNTU_CODENAME=$(get_codename jammy)
-                cat > /etc/apt/sources.list <<EOF
-deb $REPOSITORY_URL/ubuntu $UBUNTU_CODENAME main restricted universe multiverse
-deb $REPOSITORY_URL/ubuntu $UBUNTU_CODENAME-updates main restricted universe multiverse
-deb $REPOSITORY_URL/ubuntu $UBUNTU_CODENAME-security main restricted universe multiverse
+                if [ "${REPOSITORY_ZORIN_ENABLED:-false}" = "true" ] && [ -n "${REPOSITORY_ZORIN_URL:-}" ]; then
+                    echo ">>> Configurando mirror Zorin: $REPOSITORY_ZORIN_URL"
+                    backup_sources
+                    UBUNTU_CODENAME=$(get_codename jammy)
+                    cat > /etc/apt/sources.list <<EOF
+deb $REPOSITORY_ZORIN_URL/ubuntu $UBUNTU_CODENAME main restricted universe multiverse
+deb $REPOSITORY_ZORIN_URL/ubuntu $UBUNTU_CODENAME-updates main restricted universe multiverse
+deb $REPOSITORY_ZORIN_URL/ubuntu $UBUNTU_CODENAME-security main restricted universe multiverse
+EOF
+                    if [ "$REPOSITORY_MODE" = "HYBRID" ] && [ -n "$REPOSITORY_FALLBACK" ]; then
+                        echo ">>> Adicionando fallback Zorin..."
+                        cat >> /etc/apt/sources.list <<EOF
 deb $REPOSITORY_FALLBACK/ubuntu $UBUNTU_CODENAME main restricted universe multiverse
 deb $REPOSITORY_FALLBACK/ubuntu $UBUNTU_CODENAME-updates main restricted universe multiverse
 deb $REPOSITORY_FALLBACK/ubuntu $UBUNTU_CODENAME-security main restricted universe multiverse
 EOF
+                    fi
+                else
+                    echo ">>> Mirror Zorin nao habilitado. Mantendo repositorios oficiais."
+                fi
                 ;;
+
             *)
                 echo ">>> Distribuicao nao reconhecida. Mantendo sources.list padrao."
                 ;;
@@ -232,13 +255,8 @@ echo ">>> Atualizando apt-get update..."
 apt-get update
 
 echo ">>> [01] Repositorios configurados com sucesso!"
-echo "============================================================"',
-    true,  -- is_core
-    true,  -- is_active
-    1,  -- execution_order
-    1,     -- version
-    NULL   -- organization_id (disponivel para todas as OMs)
-);
+echo "============================================================"
+',
 
 -- 02 - Configurar DNS, NTP e Resolucao de Nomes
 INSERT INTO scripts (name, filename, description, content, is_core, is_active, execution_order, version, organization_id)
