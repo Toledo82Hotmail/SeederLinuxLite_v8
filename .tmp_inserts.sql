@@ -7,10 +7,8 @@
 -- Os placeholders {{VARIAVEL}} sao substituidos pelo sistema na geracao do bundle.
 -- ============================================================================
 
-BEGIN;
 
 -- Limpar scripts Core existentes (se houver re-execucao)
-DELETE FROM scripts WHERE is_core = true;
 
 -- 01 - Configurar Repositorios APT
 INSERT INTO scripts (name, filename, description, content, is_core, is_active, execution_order, version, organization_id)
@@ -3791,7 +3789,6 @@ echo "============================================================"
     NULL   -- organization_id (disponivel para todas as OMs)
 );
 
-COMMIT;
 
 -- ============================================================================
 -- Total de scripts Core inseridos: 19
