@@ -50,13 +50,13 @@ HOSTNAME_FQDN="${HOSTNAME_SHORT}.${DOMINIO}"
 # ============================================================
 # DNS temporário (para permitir apt-get durante o provisionamento)
 # ============================================================
-echo ">>> Configurando DNS temporario..."
-echo "nameserver $DNS_PRIMARIO" > /etc/resolv.conf
+echo ">>> Configurando DNS temporario (internet primeiro para baixar pacotes)..."
+echo "nameserver $DNS_INTERNET" > /etc/resolv.conf
+if [ -n "$DNS_PRIMARIO" ] && [ "$DNS_PRIMARIO" != "" ]; then
+    echo "nameserver $DNS_PRIMARIO" >> /etc/resolv.conf
+fi
 if [ -n "$DNS_SECUNDARIO" ] && [ "$DNS_SECUNDARIO" != "" ]; then
     echo "nameserver $DNS_SECUNDARIO" >> /etc/resolv.conf
-fi
-if [ -n "$DNS_INTERNET" ] && [ "$DNS_INTERNET" != "" ]; then
-    echo "nameserver $DNS_INTERNET" >> /etc/resolv.conf
 fi
 echo "search $DOMINIO" >> /etc/resolv.conf
 echo ">>> DNS temporario configurado"

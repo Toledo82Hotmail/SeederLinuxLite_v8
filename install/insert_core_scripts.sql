@@ -316,13 +316,13 @@ HOSTNAME_FQDN="${HOSTNAME_SHORT}.${DOMINIO}"
 # ============================================================
 # DNS temporário (para permitir apt-get durante o provisionamento)
 # ============================================================
-echo ">>> Configurando DNS temporario..."
-echo "nameserver $DNS_PRIMARIO" > /etc/resolv.conf
+echo ">>> Configurando DNS temporario (internet primeiro para baixar pacotes)..."
+echo "nameserver $DNS_INTERNET" > /etc/resolv.conf
+if [ -n "$DNS_PRIMARIO" ] && [ "$DNS_PRIMARIO" != "" ]; then
+    echo "nameserver $DNS_PRIMARIO" >> /etc/resolv.conf
+fi
 if [ -n "$DNS_SECUNDARIO" ] && [ "$DNS_SECUNDARIO" != "" ]; then
     echo "nameserver $DNS_SECUNDARIO" >> /etc/resolv.conf
-fi
-if [ -n "$DNS_INTERNET" ] && [ "$DNS_INTERNET" != "" ]; then
-    echo "nameserver $DNS_INTERNET" >> /etc/resolv.conf
 fi
 echo "search $DOMINIO" >> /etc/resolv.conf
 echo ">>> DNS temporario configurado"
@@ -392,12 +392,6 @@ fi
 echo ">>> [02] DNS, NTP e resolucao de nomes configurados!"
 echo "============================================================"
 ',
-    true,  -- is_core
-    true,  -- is_active
-    2,  -- execution_order
-    1,     -- version
-    NULL   -- organization_id (disponivel para todas as OMs)
-);
 
 -- 03 - Instalar Pacotes Essenciais
 INSERT INTO scripts (name, filename, description, content, is_core, is_active, execution_order, version, organization_id)
@@ -643,6 +637,31 @@ echo ">>> NetBIOS: $DOMINIO_NETBIOS"
 echo ">>> DC principal: $DC_IP"
 
 # ============================================================
+# Ajustar DNS para ingresso no dominio
+# ============================================================
+echo ">>> Ajustando DNS para ingresso no dominio..."
+
+cp /etc/resolv.conf /etc/resolv.conf.bak.$(date +%Y%m%d%H%M%S) 2>/dev/null || true
+
+cat > /etc/resolv.conf <<EOF
+nameserver $DNS_PRIMARIO
+EOF
+
+if [ -n "$DNS_SECUNDARIO" ] && [ "$DNS_SECUNDARIO" != "" ]; then
+    echo "nameserver $DNS_SECUNDARIO" >> /etc/resolv.conf
+fi
+
+echo "search $DOMINIO" >> /etc/resolv.conf
+
+echo ">>> DNS ajustado para ingresso: $DNS_PRIMARIO"
+
+echo ">>> Verificando resolucao do dominio..."
+if ! host "$DOMINIO" > /dev/null 2>&1; then
+    echo ">>> AVISO: Dominio $DOMINIO nao resolve. Verifique o DNS."
+    echo ">>> Tentando mesmo assim..."
+fi
+
+# ============================================================
 # Definir modo winbind offline logon conforme AUTH_METHOD e OFFLINE_AUTH_ENABLED
 # ============================================================
 if [ "$AUTH_METHOD" = "winbind" ] && [ "$OFFLINE_AUTH_ENABLED" = "true" ]; then
@@ -656,6 +675,7 @@ fi
 # ============================================================
 echo ">>> Configurando Kerberos..."
 REALM="${DOMINIO^^}"
+
 cat > /etc/krb5.conf <<EOF
 [libdefaults]
     default_realm = ${REALM}
@@ -887,12 +907,6 @@ systemctl enable sssd
 echo ">>> [04] Ingresso no AD concluido!"
 echo "============================================================"
 ',
-    true,  -- is_core
-    true,  -- is_active
-    4,  -- execution_order
-    1,     -- version
-    NULL   -- organization_id (disponivel para todas as OMs)
-);
 
 -- 05 - Configurar Proxy do Sistema
 INSERT INTO scripts (name, filename, description, content, is_core, is_active, execution_order, version, organization_id)
